@@ -1,0 +1,19 @@
+-- Active: 1757665099998@@localhost@5432@twitter_cities_test
+
+CREATE DATABASE twitter_cities_test
+    WITH 
+    OWNER = bokanyie    
+    ENCODING = 'UTF8'
+    LC_COLLATE = 'en_US.UTF-8'
+    LC_CTYPE = 'en_US.UTF-8'
+    CONNECTION LIMIT = -1;
+
+CREATE TABLE tweet_test
+(
+    tweet_id bigint NOT NULL,
+    user_id bigint NOT NULL,
+    created_at timestamp without time zone NOT NULL,
+    place_id VARCHAR(50),
+    lat FLOAT,
+    lon FLOAT
+);
