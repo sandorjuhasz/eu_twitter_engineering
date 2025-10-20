@@ -17,3 +17,9 @@ CREATE TABLE tweet_test
     lat FLOAT,
     lon FLOAT
 );
+
+# bulk insert test_tweet_table.csv
+COPY tweet_test(tweet_id, user_id, created_at, place_id, lat, lon)
+FROM '/home/bokanyie/urban_interactions/test_tweet_table.csv'
+DELIMITER ','
+CSV HEADER;
