@@ -8,8 +8,11 @@ CREATE DATABASE twitter_cities_test
     LC_CTYPE = 'en_US.UTF-8'
     CONNECTION LIMIT = -1;
 
+DROP TABLE IF EXISTS tweet_test;
+
 CREATE TABLE tweet_test
 (
+    city VARCHAR(10) NOT NULL,
     tweet_id bigint NOT NULL,
     user_id bigint NOT NULL,
     created_at timestamp without time zone NOT NULL,
