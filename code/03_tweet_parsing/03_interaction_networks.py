@@ -1,0 +1,150 @@
+#!/mnt/common-hdd/bokanyie/anaconda3/bin/python
+
+from pyspark.sql import SparkSession
+from pyspark.sql.types import StructType, StructField, StringType, IntegerType, LongType, BooleanType, DateType, MapType, FloatType, ArrayType
+from pyspark.sql.functions import from_json, get_json_object, col, unix_timestamp, substring, udf, floor, collect_list, lit, explode
+from pyspark.sql.functions import max as pyspark_max, to_timestamp, get_json_object
+from pyspark.sql.functions import min as pyspark_min
+
+from ast import literal_eval
+import ujson as json
+
+# initializing Spark session
+spark = SparkSession \
+    .builder\
+    .config("spark.driver.memory", "50g")\
+    .config("spark.jars","/mnt/common-hdd/bokanyie/postgresql-42.7.8.jar")\
+    .appName("Python Spark SQL") \
+    .getOrCreate()
+
+pg_url = "jdbc:postgresql://localhost:5432/twitter_cities_test"
+pg_props = {
+    "user": "bokanyie",
+    "password": "eCIt22X9YQHZwrWzw1JjvzB3QAI8iRSe",
+    "driver": "org.postgresql.Driver"
+}
+
+# structure of tweets saved by Bence after pre-processing
+tweets_schema = StructType(
+    [
+    StructField("attachments", StringType(), True),
+    StructField("author_created_at", StringType(), True),
+    StructField("author_description", StringType(), True),
+    StructField("author_entitites", StringType(), True),
+    StructField("author_id", LongType(), True),
+    StructField("author_location", StringType(), True),
+    StructField("author_name", StringType(), True),
+    StructField("author_pinned_tweet_id", LongType(), True),
+    StructField("author_pm_followers_count", LongType(), True),
+    StructField("author_pm_following_count", LongType(), True),
+    StructField("author_pm_listed_count", LongType(), True),
+    StructField("author_pm_tweet_count", LongType(), True),
+    StructField("author_profile_image_url", StringType(), True),
+    StructField("author_protected", BooleanType(), True),
+    StructField("author_url", StringType(), True),
+    StructField("author_username", StringType(), True),
+    StructField("author_verified", BooleanType(), True),
+    StructField("author_withheld", StringType(), False),
+    StructField("context_annotations", StringType(), True),
+    StructField("conversation_id", LongType(), True),
+    StructField("created_at", StringType(), False),
+    StructField("edit_controls", StringType(), False),
+    StructField("edit_history_tweet_ids", StringType(), True),
+    StructField("entities", StringType(), True),
+    StructField("geo_coo_coordinates", StringType(), True),
+    StructField("geo_coo_type", StringType(), True),
+    StructField("geo_loc_name", StringType(), True),
+    StructField("geo_place_id", StringType(), True),
+    StructField("id", LongType(), False),
+    StructField("in_reply_to_user_id", StringType(), True),
+    StructField("lang", StringType(), True),
+    StructField("possibly_sensitive", BooleanType(), True),
+    StructField("referenced_tweets", StringType(), True),
+    StructField("reply_settings", StringType(), True),
+    StructField("source", StringType(), True),    
+    StructField("text", StringType(), False),
+    StructField("tweet_pm_like_count", LongType(), False),
+    StructField("tweet_pm_quote_count", LongType(), False),
+    StructField("tweet_pm_reply_count", LongType(), False),
+    StructField("tweet_pm_retweet_count", LongType(), False),
+    StructField("withheld", StringType(), False)
+    # StructField("corrupt_record", StringType(), True)
+    ]
+)
+rename_city = {
+    "amsterdam" : "amsterdam",
+    "portland" : "portland",
+    "Greater-London" : "london"
+}
+
+def extract_mentions(mentions_json_str):
+    if mentions_json_str is None:
+        return []
+    elif type(mentions_json_str):
+        return [mentions_json_str.strip(r"\"")]
+    else:
+        return [elem.strip(r"\"") for elem in mentions_json_str]
+
+extract_mentions_udf = udf(extract_mentions, ArrayType(StringType()))
+
+for city in ["amsterdam", "portland", "Greater-London"]:
+# for city in ["amsterdam"]:
+    tweets = (spark.read
+        .option("multiline", "true")
+        .option("quote", '"')
+        .option("escape", "\\")
+        .option("escape", '"')
+        .csv(
+            f'../../data/{city}/tweets/',
+            # "../../data/amsterdam/tweets/amsterdam_2012-01-08_2012-01-09.csv",
+            header="True",
+            schema=tweets_schema,
+            mode="DROPMALFORMED",
+        )
+        .withColumn("city", lit(rename_city.get(city)))
+    )
+
+    # extracting mentions
+    mentions = (tweets
+        .withColumn("type", lit("mention"))
+        .withColumn("mentions", explode(extract_mentions_udf(get_json_object(col("entities"), "$.mentions[*].id"))))
+        # cast mentions to long
+        .withColumn("user_id2_target", col("mentions").cast(LongType()))
+        .filter(col("mentions").isNotNull())
+        .select(
+            col("city"),
+            col("id").alias("tweet_id"),
+            substring(col("created_at"),1,19).alias("created_at"),
+            col("author_id").alias("user_id1_source"),
+            col("user_id2_target"),
+            col("type")
+        )
+        .withColumn("created_at", to_timestamp(col("created_at"), "yyyy-MM-dd HH:mm:ss"))
+    )
+
+    replies = (tweets
+        .withColumn("type", lit("reply"))
+        .select(
+            col("city"),
+            col("id").alias("tweet_id"),
+            substring(col("created_at"),1,19).alias("created_at"),
+            col("author_id").alias("user_id1_source"),
+            col("in_reply_to_user_id").cast(LongType()).alias("user_id2_target"),
+            col("type")
+        )
+        .filter(col("user_id2_target").isNotNull())
+        .withColumn("created_at", to_timestamp(col("created_at"), "yyyy-MM-dd HH:mm:ss"))
+    )
+
+    # concatenate mentions and replies
+    interactions = (
+        mentions
+        .union(replies)
+        .write
+        .mode("append")
+        .jdbc(
+            url=pg_url,
+            table="interactions",
+            properties=pg_props
+        )
+    )
