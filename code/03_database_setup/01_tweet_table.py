@@ -1,13 +1,11 @@
 #!/mnt/common-hdd/bokanyie/anaconda3/bin/python
 
 from pyspark.sql import SparkSession
-from pyspark.sql.types import StructType, StructField, StringType, IntegerType, LongType, BooleanType, DateType, MapType, FloatType, ArrayType
-from pyspark.sql.functions import from_json, get_json_object, col, unix_timestamp, substring, udf, floor, collect_list, lit
-from pyspark.sql.functions import max as pyspark_max, to_timestamp
-from pyspark.sql.functions import min as pyspark_min
+from pyspark.sql.types import StructType, StructField, StringType, LongType, BooleanType, FloatType
+from pyspark.sql.functions import col, substring, udf, lit
+from pyspark.sql.functions import to_timestamp
 
 from ast import literal_eval
-import ujson as json
 
 
 import psycopg2 as psql
@@ -39,7 +37,9 @@ CREATE TABLE tweet
     created_at timestamp without time zone NOT NULL,
     place_id VARCHAR(50),
     lat FLOAT,
-    lon FLOAT
+    lon FLOAT,
+    conversation_id   BIGINT,
+    text TEXT
 );
 """
 
@@ -159,7 +159,9 @@ for city in ["amsterdam", "portland", "Greater-London"]:
             substring(col("created_at"),1,19).alias("created_at"),
             col("geo_place_id"),
             col("lat"),
-            col("lon")
+            col("lon"),
+            col("conversation_id"),
+            col("text")
         )
         .withColumn("created_at", to_timestamp(col("created_at"), "yyyy-MM-dd HH:mm:ss"))
         # rename geo_place_id to place_id
@@ -168,7 +170,7 @@ for city in ["amsterdam", "portland", "Greater-London"]:
         .withColumnRenamed("id", "tweet_id")
         # rename author_id to user_id
         .withColumnRenamed("author_id", "user_id")
-        # ensure city, tweet_id is unique
+        # ensure city, tweet_id is unique to be able to create PK later
         .dropDuplicates(["city", "tweet_id"])
         # take 1000 rows for testing
         .write
