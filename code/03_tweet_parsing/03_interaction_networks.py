@@ -109,14 +109,14 @@ for city in ["amsterdam", "portland", "Greater-London"]:
         .withColumn("type", lit("mention"))
         .withColumn("mentions", explode(extract_mentions_udf(get_json_object(col("entities"), "$.mentions[*].id"))))
         # cast mentions to long
-        .withColumn("user_id2_target", col("mentions").cast(LongType()))
+        .withColumn("user_id2_interaction", col("mentions").cast(LongType()))
         .filter(col("mentions").isNotNull())
         .select(
             col("city"),
             col("id").alias("tweet_id"),
             substring(col("created_at"),1,19).alias("created_at"),
             col("author_id").alias("user_id1_source"),
-            col("user_id2_target"),
+            col("user_id2_interaction"),
             col("type")
         )
         .withColumn("created_at", to_timestamp(col("created_at"), "yyyy-MM-dd HH:mm:ss"))
@@ -129,10 +129,10 @@ for city in ["amsterdam", "portland", "Greater-London"]:
             col("id").alias("tweet_id"),
             substring(col("created_at"),1,19).alias("created_at"),
             col("author_id").alias("user_id1_source"),
-            col("in_reply_to_user_id").cast(LongType()).alias("user_id2_target"),
+            col("in_reply_to_user_id").cast(LongType()).alias("user_id2_interaction"),
             col("type")
         )
-        .filter(col("user_id2_target").isNotNull())
+        .filter(col("user_id2_interaction").isNotNull())
         .withColumn("created_at", to_timestamp(col("created_at"), "yyyy-MM-dd HH:mm:ss"))
     )
 
@@ -140,11 +140,12 @@ for city in ["amsterdam", "portland", "Greater-London"]:
     interactions = (
         mentions
         .union(replies)
+        .filter(col("user_id2_interaction").isNotNull())
         .write
         .mode("append")
         .jdbc(
             url=pg_url,
-            table="interactions",
+            table="interaction_network",
             properties=pg_props
         )
     )
