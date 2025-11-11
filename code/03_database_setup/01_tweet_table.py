@@ -9,6 +9,52 @@ from pyspark.sql.functions import min as pyspark_min
 from ast import literal_eval
 import ujson as json
 
+
+import psycopg2 as psql
+
+
+# ============================================
+# Setting up Postgres tables
+# ============================================
+
+# initializing tables with psycopg2
+conn = psql.connect(
+    database = "twitter_cities_test",
+    user = "bokanyie", 
+    host= 'localhost',
+    password = open("password.txt", "r").read().strip(),
+    port = 5432
+)
+cur = conn.cursor()
+
+# creating tweet table
+create_tweet_table = """
+DROP TABLE IF EXISTS tweet;
+
+CREATE TABLE tweet
+(
+    city VARCHAR(10) NOT NULL,
+    tweet_id bigint NOT NULL,
+    user_id bigint NOT NULL,
+    created_at timestamp without time zone NOT NULL,
+    place_id VARCHAR(50),
+    lat FLOAT,
+    lon FLOAT
+);
+"""
+
+# run above commands
+cur.execute(create_tweet_table)
+conn.commit()
+cur.close()
+conn.close()
+
+
+# ============================================
+# Spark part to populate tables from data
+# ============================================
+
+
 # extracting lat/long coordinates from tweets
 @udf(returnType=FloatType())
 def get_lat(s):
@@ -34,7 +80,7 @@ spark = SparkSession \
 pg_url = "jdbc:postgresql://localhost:5432/twitter_cities_test"
 pg_props = {
     "user": "bokanyie",
-    "password": "eCIt22X9YQHZwrWzw1JjvzB3QAI8iRSe",
+    "password": open("password.txt", "r").read().strip(),
     "driver": "org.postgresql.Driver"
 }
 
@@ -91,8 +137,7 @@ rename_city = {
     "Greater-London" : "london"
 }
 
-# for city in ["amsterdam", "portland", "Greater-London"]:
-for city in ["Greater-London"]:
+for city in ["amsterdam", "portland", "Greater-London"]:
     tweets = (spark.read
         .option("multiline", "true")
         .option("quote", '"')
@@ -123,6 +168,8 @@ for city in ["Greater-London"]:
         .withColumnRenamed("id", "tweet_id")
         # rename author_id to user_id
         .withColumnRenamed("author_id", "user_id")
+        # ensure city, tweet_id is unique
+        .dropDuplicates(["city", "tweet_id"])
         # take 1000 rows for testing
         .write
         .mode("append")
