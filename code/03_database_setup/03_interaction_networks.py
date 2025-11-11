@@ -35,7 +35,7 @@ CREATE TABLE mention_network
     tweet_id             BIGINT      NOT NULL,
     created_at           TIMESTAMP   NOT NULL,
     user_id1_source      BIGINT      NOT NULL,  -- author
-    user_id2_interaction BIGINT      NOT NULL,  -- mentioned/replied/retweeted user
+    user_id2_interaction BIGINT      NOT NULL  -- mentioned user
 );
 
 """
@@ -50,7 +50,7 @@ CREATE TABLE reply_network
     conversation_id      BIGINT      NOT NULL,
     created_at           TIMESTAMP   NOT NULL,
     user_id1_source      BIGINT      NOT NULL,  -- author
-    user_id2_interaction BIGINT      NOT NULL,  -- mentioned/replied/retweeted user
+    user_id2_interaction BIGINT      NOT NULL  -- replied user
 );  
 """
 
@@ -152,7 +152,7 @@ extract_mentions_udf = udf(extract_mentions, ArrayType(StringType()))
 for city in ["amsterdam", "portland", "Greater-London"]:
 
     # reading tweets data, common part for both mentions and replies
-   tweets = (spark.read
+    tweets = (spark.read
         .option("multiline", "true")
         .option("quote", '"')
         .option("escape", "\\")
@@ -165,8 +165,9 @@ for city in ["amsterdam", "portland", "Greater-London"]:
         )
         .withColumn("city", lit(rename_city.get(city)))
     )
-
-    # extracting mentions
+   
+   # getting mentions in each tweet
+   # it's in a JSON field in the "entities" column
     mentions = (tweets
         .withColumn("mentions", explode(extract_mentions_udf(get_json_object(col("entities"), "$.mentions[*].id"))))
         # cast mentions to long
@@ -189,6 +190,9 @@ for city in ["amsterdam", "portland", "Greater-London"]:
         )
     )
 
+    # getting replies
+    # in_reply_to_user_id field gives the user being replied to
+    # conversation_id groups tweets in the same conversation
     replies = (tweets
         .select(
             col("city"),
