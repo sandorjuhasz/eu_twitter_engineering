@@ -181,6 +181,8 @@ for city in ["amsterdam", "portland", "Greater-London"]:
             col("user_id2_interaction"),
         )
         .withColumn("created_at", to_timestamp(col("created_at"), "yyyy-MM-dd HH:mm:ss"))
+        # remove duplicates to allow for PK creation later
+        .dropDuplicates(["city","tweet_id", "user_id1_source", "user_id2_interaction"])
         .write
         .mode("append")
         .jdbc(
@@ -204,6 +206,8 @@ for city in ["amsterdam", "portland", "Greater-London"]:
         )
         .filter(col("user_id2_interaction").isNotNull())
         .withColumn("created_at", to_timestamp(col("created_at"), "yyyy-MM-dd HH:mm:ss"))
+        # remove duplicates to allow for PK creation later
+        .dropDuplicates(["city", "tweet_id", "user_id1_source", "user_id2_interaction"])
         .write
         .mode("append")
         .jdbc(

@@ -183,3 +183,25 @@ for city in ["amsterdam", "portland", "Greater-London"]:
     )
 
 spark.stop()
+
+# reopen psql connection to add PK and indexes
+conn = psql.connect(
+    database = "twitter_cities_test",
+    user = "bokanyie", 
+    host= 'localhost',
+    password = open("password.txt", "r").read().strip(),
+    port = 5432
+)
+cur = conn.cursor()
+
+query = """
+-- add PK to tweet table on city, tweet_id
+ALTER TABLE tweet ADD PRIMARY KEY (city, tweet_id);
+-- add index to tweet table on user_id
+CREATE INDEX idx_user_id ON tweet (user_id);
+"""
+cur.execute(query)
+conn.commit()
+
+cur.close()
+conn.close()

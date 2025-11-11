@@ -31,7 +31,6 @@ DROP TABLE IF EXISTS follower_network;
 
 CREATE TABLE follower_network
 (
-    city                 VARCHAR(10) NOT NULL,
     user_id1_source      BIGINT      NOT NULL, -- follower
     user_id2_target      BIGINT      NOT NULL  -- following
 );
@@ -108,13 +107,6 @@ schema_dict = {
     "Greater-London": london_follower_schema
 }
 
-# renaming cities for uniformity
-rename_city = {
-    "amsterdam" : "amsterdam",
-    "portland" : "portland",
-    "Greater-London" : "london"
-}
-
 # processing each city's tweets
 for city in ["amsterdam", "Greater-London"]:
     followers = (spark.read
@@ -128,7 +120,8 @@ for city in ["amsterdam", "Greater-London"]:
             schema=schema_dict[city],
             mode="DROPMALFORMED",
         )
-        .withColumn("city", lit(rename_city.get(city)))
+        # removing duplicates to allow for PK creation later
+        .dropDuplicates(["user_id1_source", "user_id2_target"])
         .take(5)
     )
     print(followers)

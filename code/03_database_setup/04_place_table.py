@@ -97,6 +97,10 @@ place = (
         header=True,
         schema=place_schema
     )
+    # filter if place_id = 'Portland' or 'suite 330' (checked database and these are invalid rows)
+    .filter(~col("place_id").isin("Portland", "suite 330"))
+    # removing duplicates to allow for PK creation later
+    .dropDuplicates(["place_id"])
     .write
     .mode('append')
     .jdbc(
