@@ -6,8 +6,65 @@ from pyspark.sql.functions import from_json, get_json_object, col, unix_timestam
 from pyspark.sql.functions import max as pyspark_max, to_timestamp, get_json_object
 from pyspark.sql.functions import min as pyspark_min
 
+import psycopg2 as psql
+
 from ast import literal_eval
 import ujson as json
+
+# ============================================
+# Setting up Postgres tables
+# ============================================
+
+# initializing tables with psycopg2
+conn = psql.connect(
+    database = "twitter_cities_test",
+    user = "bokanyie", 
+    host= 'localhost',
+    password = "eCIt22X9YQHZwrWzw1JjvzB3QAI8iRSe",
+    port = 5432
+)
+cur = conn.cursor()
+
+# creating mention network table
+create_mention_network_table = """
+DROP TABLE IF EXISTS mention_network;
+
+CREATE TABLE mention_network
+(
+    city                 VARCHAR(10) NOT NULL,
+    tweet_id             BIGINT      NOT NULL,
+    created_at           TIMESTAMP   NOT NULL,
+    user_id1_source      BIGINT      NOT NULL,  -- author
+    user_id2_interaction BIGINT      NOT NULL,  -- mentioned/replied/retweeted user
+);
+
+"""
+
+create_reply_network_table = """
+DROP TABLE IF EXISTS reply_network;
+
+CREATE TABLE reply_network
+(
+    city                 VARCHAR(10) NOT NULL,
+    tweet_id             BIGINT      NOT NULL,
+    conversation_id      BIGINT      NOT NULL,
+    created_at           TIMESTAMP   NOT NULL,
+    user_id1_source      BIGINT      NOT NULL,  -- author
+    user_id2_interaction BIGINT      NOT NULL,  -- mentioned/replied/retweeted user
+);  
+"""
+
+# run above commands
+cur.execute(create_mention_network_table)
+cur.execute(create_reply_network_table)
+conn.commit()
+cur.close()
+conn.close()
+
+
+# ============================================
+# Spark part to populate tables from data
+# ============================================
 
 # initializing Spark session
 spark = SparkSession \
@@ -17,6 +74,7 @@ spark = SparkSession \
     .appName("Python Spark SQL") \
     .getOrCreate()
 
+# setting up postgres connection for spark
 pg_url = "jdbc:postgresql://localhost:5432/twitter_cities_test"
 pg_props = {
     "user": "bokanyie",
@@ -71,6 +129,8 @@ tweets_schema = StructType(
     # StructField("corrupt_record", StringType(), True)
     ]
 )
+
+# renaming cities for uniformity
 rename_city = {
     "amsterdam" : "amsterdam",
     "portland" : "portland",
@@ -78,25 +138,27 @@ rename_city = {
 }
 
 def extract_mentions(mentions_json_str):
+    """ Extracts mentions from the JSON string representation of mentions. """
     if mentions_json_str is None:
         return []
     elif type(mentions_json_str):
         return [mentions_json_str.strip(r"\"")]
     else:
         return [elem.strip(r"\"") for elem in mentions_json_str]
-
+# UDF for extracting mentions
 extract_mentions_udf = udf(extract_mentions, ArrayType(StringType()))
 
+# processing each city's tweets
 for city in ["amsterdam", "portland", "Greater-London"]:
-# for city in ["amsterdam"]:
-    tweets = (spark.read
+
+    # reading tweets data, common part for both mentions and replies
+   tweets = (spark.read
         .option("multiline", "true")
         .option("quote", '"')
         .option("escape", "\\")
         .option("escape", '"')
         .csv(
             f'../../data/{city}/tweets/',
-            # "../../data/amsterdam/tweets/amsterdam_2012-01-08_2012-01-09.csv",
             header="True",
             schema=tweets_schema,
             mode="DROPMALFORMED",
@@ -106,46 +168,43 @@ for city in ["amsterdam", "portland", "Greater-London"]:
 
     # extracting mentions
     mentions = (tweets
-        .withColumn("type", lit("mention"))
         .withColumn("mentions", explode(extract_mentions_udf(get_json_object(col("entities"), "$.mentions[*].id"))))
         # cast mentions to long
         .withColumn("user_id2_interaction", col("mentions").cast(LongType()))
-        .filter(col("mentions").isNotNull())
+        .filter(col("user_id2_interaction").isNotNull())
         .select(
             col("city"),
             col("id").alias("tweet_id"),
             substring(col("created_at"),1,19).alias("created_at"),
             col("author_id").alias("user_id1_source"),
             col("user_id2_interaction"),
-            col("type")
         )
         .withColumn("created_at", to_timestamp(col("created_at"), "yyyy-MM-dd HH:mm:ss"))
-    )
-
-    replies = (tweets
-        .withColumn("type", lit("reply"))
-        .select(
-            col("city"),
-            col("id").alias("tweet_id"),
-            substring(col("created_at"),1,19).alias("created_at"),
-            col("author_id").alias("user_id1_source"),
-            col("in_reply_to_user_id").cast(LongType()).alias("user_id2_interaction"),
-            col("type")
-        )
-        .filter(col("user_id2_interaction").isNotNull())
-        .withColumn("created_at", to_timestamp(col("created_at"), "yyyy-MM-dd HH:mm:ss"))
-    )
-
-    # concatenate mentions and replies
-    interactions = (
-        mentions
-        .union(replies)
-        .filter(col("user_id2_interaction").isNotNull())
         .write
         .mode("append")
         .jdbc(
             url=pg_url,
-            table="interaction_network",
+            table="mention_network",
+            properties=pg_props
+        )
+    )
+
+    replies = (tweets
+        .select(
+            col("city"),
+            col("id").alias("tweet_id"),
+            col("conversation_id"),
+            substring(col("created_at"),1,19).alias("created_at"),
+            col("author_id").alias("user_id1_source"),
+            col("in_reply_to_user_id").cast(LongType()).alias("user_id2_interaction"),
+        )
+        .filter(col("user_id2_interaction").isNotNull())
+        .withColumn("created_at", to_timestamp(col("created_at"), "yyyy-MM-dd HH:mm:ss"))
+        .write
+        .mode("append")
+        .jdbc(
+            url=pg_url,
+            table="reply_network",
             properties=pg_props
         )
     )
