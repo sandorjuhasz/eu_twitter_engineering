@@ -1,5 +1,3 @@
-#!/mnt/common-hdd/bokanyie/anaconda3/bin/python
-
 from pyspark.sql import SparkSession
 from pyspark.sql.types import StructType, StructField, StringType, IntegerType, LongType, BooleanType, DateType, MapType, FloatType, ArrayType
 from pyspark.sql.functions import from_json, get_json_object, col, unix_timestamp, substring, udf, floor, collect_list, lit, explode
@@ -23,6 +21,8 @@ cur = conn.cursor()
 create_mention_network_table = """
 DROP TABLE IF EXISTS mention_network;
 
+SET ROLE twitter_project;
+
 CREATE TABLE mention_network
 (
     city                 VARCHAR(10) NOT NULL,
@@ -32,10 +32,13 @@ CREATE TABLE mention_network
     user_id2_interaction BIGINT      NOT NULL  -- mentioned user
 );
 
+RESET ROLE;
 """
 
 create_reply_network_table = """
 DROP TABLE IF EXISTS reply_network;
+
+SET ROLE twitter_project;
 
 CREATE TABLE reply_network
 (
@@ -46,6 +49,8 @@ CREATE TABLE reply_network
     user_id1_source      BIGINT      NOT NULL,  -- author
     user_id2_interaction BIGINT      NOT NULL  -- replied user
 );  
+
+RESET ROLE;
 """
 
 # run above commands
@@ -219,10 +224,15 @@ conn = psql.connect(**json.load(open("connection.json")))
 cur = conn.cursor()
 
 query = """
+SET ROLE twitter_project;
+
 -- add PK to mention network user_id1_source, user_id2_interaction
 ALTER TABLE mention_network ADD PRIMARY KEY (city, user_id1_source, user_id2_interaction, tweet_id);
+
 -- add PK to reply network user_id1_source, user_id2_interaction
 ALTER TABLE reply_network ADD PRIMARY KEY (city, user_id1_source, user_id2_interaction, tweet_id);
+
+RESET ROLE;
 """
 cur.execute(query)
 conn.commit()

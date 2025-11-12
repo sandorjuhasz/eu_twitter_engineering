@@ -24,6 +24,8 @@ cur = conn.cursor()
 create_place_table = """
 DROP TABLE IF EXISTS place;
 
+SET ROLE twitter_project;
+
 CREATE TABLE place
 (
     place_id            VARCHAR(50) NOT NULL,
@@ -40,6 +42,7 @@ CREATE TABLE place
     err               FLOAT
 );
 
+RESET ROLE;
 """
 
 # run above commands

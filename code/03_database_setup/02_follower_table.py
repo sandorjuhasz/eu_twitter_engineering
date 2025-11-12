@@ -25,11 +25,15 @@ cur = conn.cursor()
 create_follower_network_table = """
 DROP TABLE IF EXISTS follower_network;
 
+SET ROLE twitter_project;
+
 CREATE TABLE follower_network
 (
     user_id1_source      BIGINT      NOT NULL, -- follower
     user_id2_target      BIGINT      NOT NULL  -- following
 );
+
+RESET ROLE;
 
 """
 

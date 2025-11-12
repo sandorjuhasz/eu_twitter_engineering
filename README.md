@@ -11,19 +11,32 @@ Data collection focused on **Amsterdam**, **London**, and **Portland (US)** as a
 ```
 ├── code/
 │   ├── 01_user_selection_for_followers/     # Initial user selection for data collection
-│   │   └── users_to_query.ipynb             # Selection process notebook
+│   │   ├── users_to_query.ipynb             # Selection process notebook
+│   │   ├── selected_users_amsterdam.csv     # Selected users for Amsterdam
+│   │   └── selected_users_portland.csv      # Selected users for Portland
 │   │
 │   ├── 02_place_id_parsing/                 # Place data processing scripts
 │   │   ├── concat_place_json.sh             # JSON concatenation script
 │   │   ├── convert_places.ipynb             # Place conversion and cleaning
-│   │   └── utils/                           # Related utility scripts
+│   │   ├── places_all.json                  # Consolidated place data
+│   │   └── utils/
+│   │       └── place_json_filter.sh         # Place JSON filtering utility
 │   │
-│   ├── 03_tweet_parsing/                    # Tweet data processing
-│   │   ├── 00_test_table_ideas.ipynb        # Test table ideas
-│   │   └── 01_tweet_table.py                # Tweet table
-│   │
-│   └── 10_sql_db/                           # Database setup and management
-│       └── create_db.sql                    # SQL schema and initialization
+│   └── 03_database_setup/                   # Database setup and table creation
+│       ├── README.md                        # Detailed setup documentation
+│       ├── 00_database.py                   # Database initialization
+│       ├── 01_tweet_table.py                # Tweet table creation and loading
+│       ├── 02_follower_table.py             # Follower network table
+│       ├── 03_interaction_networks.py       # Mention and reply network tables
+│       ├── 04_place_table.py                # Place/location table
+│       └── connection_sample.json           # Database connection template
+│
+├── tables/                                  # Output tables
+│   ├── place.csv                            # Place reference data
+│   └── test_tweet_table.csv                 # Sample tweet data
+│
+├── data/                                    # Symbolic link to data directory
+└── raw-data/                                # Symbolic link to raw data directory
 ```
 
 ### SQL Team

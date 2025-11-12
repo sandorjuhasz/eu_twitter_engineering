@@ -1,5 +1,3 @@
-#!/mnt/common-hdd/bokanyie/anaconda3/bin/python
-
 from pyspark.sql import SparkSession
 from pyspark.sql.types import StructType, StructField, StringType, LongType, BooleanType, FloatType
 from pyspark.sql.functions import col, substring, udf, lit
@@ -25,6 +23,8 @@ cur = conn.cursor()
 create_tweet_table = """
 DROP TABLE IF EXISTS tweet;
 
+SET ROLE twitter_project;
+
 CREATE TABLE tweet
 (
     city VARCHAR(10) NOT NULL,
@@ -37,6 +37,8 @@ CREATE TABLE tweet
     conversation_id   BIGINT,
     text TEXT
 );
+
+RESET ROLE;
 """
 
 # run above commands
@@ -186,10 +188,14 @@ conn = psql.connect(**json.load(open("connection.json")))
 cur = conn.cursor()
 
 query = """
+SET ROLE twitter_project;
+
 -- add PK to tweet table on city, tweet_id
 ALTER TABLE tweet ADD PRIMARY KEY (city, tweet_id);
 -- add index to tweet table on user_id
 CREATE INDEX idx_user_id ON tweet (user_id);
+
+RESET ROLE;
 """
 cur.execute(query)
 conn.commit()
