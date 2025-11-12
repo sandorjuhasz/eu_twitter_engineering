@@ -6,6 +6,18 @@ This folder contains scripts for setting up the PostgreSQL database and loading 
 
 The database setup process consists of multiple steps that create and populate tables for tweets, users, places, and interaction networks. Each script uses PySpark to process raw Twitter data from `/mnt/common-hdd/raw-sources/twitter-data/data` and `psycopg2` to create and manage PostgreSQL tables.
 
+## Running all
+
+If you are sure about the prerequisites and the content of the scripts, run all the database setup scripts in order, execute the following commands from the `03_database_setup` directory:
+
+```bash
+python 00_database.py
+python 01_tweet_table.py
+python 02_follower_table.py
+python 03_interaction_networks.py
+python 04_place_table.py
+```
+
 ## Prerequisites
 
 - **Python packages:**
