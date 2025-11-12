@@ -1,0 +1,8 @@
+{
+    "database": "twitter_cities",
+    "user": "username", 
+    "host": "localhost",
+    "password": "password",
+    "port": 5432
+}
+
