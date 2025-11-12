@@ -188,14 +188,10 @@ conn = psql.connect(**json.load(open("connection.json")))
 cur = conn.cursor()
 
 query = """
-SET ROLE twitter_project;
-
 -- add PK to tweet table on city, tweet_id
 ALTER TABLE tweet ADD PRIMARY KEY (city, tweet_id);
 -- add index to tweet table on user_id
 CREATE INDEX idx_user_id ON tweet (user_id);
-
-RESET ROLE;
 """
 cur.execute(query)
 conn.commit()
