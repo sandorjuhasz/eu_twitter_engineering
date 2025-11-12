@@ -16,13 +16,7 @@ import ujson as json
 # ============================================
 
 # initializing tables with psycopg2
-conn = psql.connect(
-    database = "twitter_cities_test",
-    user = "bokanyie", 
-    host= 'localhost',
-    password = open("password.txt", "r").read().strip(),
-    port = 5432
-)
+conn = psql.connect(**json.load(open("connection.json")))
 cur = conn.cursor()
 
 # creating place table
@@ -70,8 +64,8 @@ spark = SparkSession \
 # setting up postgres connection for spark
 pg_url = "jdbc:postgresql://localhost:5432/twitter_cities_test"
 pg_props = {
-    "user": "bokanyie",
-    "password": open("password.txt", "r").read().strip(),
+    "user": json.load(open("connection.json"))["user"],
+    "password": json.load(open("connection.json"))["password"],
     "driver": "org.postgresql.Driver"
 }
 
@@ -111,3 +105,17 @@ place = (
 )
 
 spark.stop()
+
+# reopen psql connection to add PK and indexes
+conn = psql.connect(**json.load(open("connection.json")))
+cur = conn.cursor()
+
+query = """
+-- add PK to place table
+ALTER TABLE place ADD PRIMARY KEY (place_id);
+"""
+cur.execute(query)
+conn.commit()
+
+cur.close()
+conn.close()

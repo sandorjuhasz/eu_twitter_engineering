@@ -16,13 +16,7 @@ import ujson as json
 # ============================================
 
 # initializing tables with psycopg2
-conn = psql.connect(
-    database = "twitter_cities_test",
-    user = "bokanyie", 
-    host= 'localhost',
-    password = "eCIt22X9YQHZwrWzw1JjvzB3QAI8iRSe",
-    port = 5432
-)
+conn = psql.connect(**json.load(open("connection.json")))
 cur = conn.cursor()
 
 # creating mention network table
@@ -77,9 +71,10 @@ spark = SparkSession \
 # setting up postgres connection for spark
 pg_url = "jdbc:postgresql://localhost:5432/twitter_cities_test"
 pg_props = {
-    "user": "bokanyie",
-    "password": "eCIt22X9YQHZwrWzw1JjvzB3QAI8iRSe",
-    "driver": "org.postgresql.Driver"
+    "user": json.load(open("connection.json"))["user"],
+    "password": json.load(open("connection.json"))["password"],
+    "driver": "org.postgresql.Driver",
+    "batchsize": "300000"
 }
 
 # structure of tweets saved by Bence after pre-processing
@@ -161,7 +156,7 @@ for city in ["amsterdam", "portland", "Greater-London"]:
             f'../../data/{city}/tweets/',
             header="True",
             schema=tweets_schema,
-            mode="DROPMALFORMED",
+            mode="DROPMALFORMED"
         )
         .withColumn("city", lit(rename_city.get(city)))
     )
@@ -218,3 +213,19 @@ for city in ["amsterdam", "portland", "Greater-London"]:
     )
 
 spark.stop()
+
+# reopen psql connection to add PK and indexes
+conn = psql.connect(**json.load(open("connection.json")))
+cur = conn.cursor()
+
+query = """
+-- add PK to mention network user_id1_source, user_id2_interaction
+ALTER TABLE mention_network ADD PRIMARY KEY (city, user_id1_source, user_id2_interaction, tweet_id);
+-- add PK to reply network user_id1_source, user_id2_interaction
+ALTER TABLE reply_network ADD PRIMARY KEY (city, user_id1_source, user_id2_interaction, tweet_id);
+"""
+cur.execute(query)
+conn.commit()
+
+cur.close()
+conn.close()

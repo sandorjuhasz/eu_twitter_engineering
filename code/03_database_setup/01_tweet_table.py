@@ -5,6 +5,8 @@ from pyspark.sql.types import StructType, StructField, StringType, LongType, Boo
 from pyspark.sql.functions import col, substring, udf, lit
 from pyspark.sql.functions import to_timestamp
 
+import ujson as json
+
 from ast import literal_eval
 
 
@@ -16,13 +18,7 @@ import psycopg2 as psql
 # ============================================
 
 # initializing tables with psycopg2
-conn = psql.connect(
-    database = "twitter_cities_test",
-    user = "bokanyie", 
-    host= 'localhost',
-    password = open("password.txt", "r").read().strip(),
-    port = 5432
-)
+conn = psql.connect(**json.load(open("connection.json")))
 cur = conn.cursor()
 
 # creating tweet table
@@ -79,9 +75,10 @@ spark = SparkSession \
 
 pg_url = "jdbc:postgresql://localhost:5432/twitter_cities_test"
 pg_props = {
-    "user": "bokanyie",
-    "password": open("password.txt", "r").read().strip(),
-    "driver": "org.postgresql.Driver"
+    "user": json.load(open("connection.json"))["user"],
+    "password": json.load(open("connection.json"))["password"],
+    "driver": "org.postgresql.Driver",
+    "batchsize": "300000"
 }
 
 # structure of tweets saved by Bence after pre-processing
@@ -184,14 +181,8 @@ for city in ["amsterdam", "portland", "Greater-London"]:
 
 spark.stop()
 
-# reopen psql connection to add PK and indexes
-conn = psql.connect(
-    database = "twitter_cities_test",
-    user = "bokanyie", 
-    host= 'localhost',
-    password = open("password.txt", "r").read().strip(),
-    port = 5432
-)
+# reopen psql connection to add PK and indices
+conn = psql.connect(**json.load(open("connection.json")))
 cur = conn.cursor()
 
 query = """
