@@ -16,17 +16,13 @@ cur = conn.cursor()
 
 # create database
 query = f"""
-SET ROLE twitter_project;
-
-CREATE DATABASE {database}
-    WITH 
-    OWNER = {connection_dict["user"]}
-    ENCODING = 'UTF8'
-    LC_COLLATE = 'en_US.UTF-8'
-    LC_CTYPE = 'en_US.UTF-8'
-    CONNECTION LIMIT = -1;
-
-RESET ROLE;
+    CREATE DATABASE {database}
+        WITH 
+        OWNER = twitter_project
+        ENCODING = 'UTF8'
+        LC_COLLATE = 'en_US.UTF-8'
+        LC_CTYPE = 'en_US.UTF-8'
+        CONNECTION LIMIT = -1;
 """
 
 cur.execute(query)
