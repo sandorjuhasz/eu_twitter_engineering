@@ -1,0 +1,30 @@
+data_root: "/mnt/common-hdd/raw-sources/twitter-data/data"
+
+cities:
+  amsterdam: "amsterdam"
+  portland: "portland"
+  london: "london"
+
+# Subdirectories inside each city folder
+city_subdirs:
+  tweets: "tweets"
+  followers: "followers"
+  followings: "followings"
+
+# Pattern for tweet CSVs, e.g.
+# Greater-London/ tweets / amsterdam_2013-08-19_2013-08-20.csv
+tweet_file_pattern: "{city}_{start}_{end}.csv"
+
+# e.g. Greater-London / followers / 2923456517_followers.csv
+followers_file_pattern: "{user_id}_followers.csv"
+
+# e.g. Greater-London / followings / 2923456517_followings.csv
+followings_file_pattern: "{user_id}_followings.csv"
+
+# e.g. amsterdam_selected_users.csv
+selected_users_file_pattern: "{city}_selected_users.csv"
+
+# Where outputs (logs, plots, temp files) are stored inside the GIT REPO
+outputs_subdir: "outputs"   # inside the git repo root
+
+
