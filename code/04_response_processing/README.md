@@ -206,8 +206,6 @@ The table below summarizes how many rows were loaded from the raw API outputs an
 | Portland        | 15,941,905    | 42               |
 | Greater London  | 130,162,824   | 42               |
 
-
-
 #### Totals
 
 - **Total rows across all cities:** 164,243,066  
@@ -224,57 +222,7 @@ The table below summarizes how many rows were loaded from the raw API outputs an
 
 ---
 
-9. Followers / Following Data Collection
-
-Endpoints used:
-https://docs.x.com/x-api/users/get-followers
-
-
-https://docs.x.com/x-api/users/get-following
-
-Preselected users from whole:
-
-| City      | Follower/Following Rows |
-| --------- | ----------------------- |
-| London    | 190,368                 |
-| Amsterdam | 20,471                  |
-| Portland  | 18,682                  |
-
-Unique Users
-
-Total unique users: 228,078
-
-Users appearing in ≥2 cities: 1,443
-
-
-File coverage
-
-| File type            | Count                           |
-| -------------------- | ------------------------------- |
-| GL follower files    | 166,116                         |
-| GL following files   | 166,788                         |
-| AMS follower files   | 469                             |
-| OTHER follower files | 18,022 (Amsterdam consolidated) |
-
-- sam table but with this numbers:
-amsterdam followers files 18148
-
-portland followers files 178
-
-london followings files 166788
-
-london followers files 166264
-
--- add good numbers from fix 
-
-Portland follower data incomplete
-Amsterdam partially incomplete
-London partially incomplete
-
-
----
-
-## 9. Followers / Following Data Collection
+## 8. Followers / Following Data Collection
 
 Follower and following relationships were collected using the official X API endpoints:
 
