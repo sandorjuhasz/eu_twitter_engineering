@@ -89,7 +89,7 @@ tweets_schema = StructType(
     StructField("attachments", StringType(), True),
     StructField("author_created_at", StringType(), True),
     StructField("author_description", StringType(), True),
-    StructField("author_entitites", StringType(), True),
+    StructField("author_entities", StringType(), True),
     StructField("author_id", LongType(), True),
     StructField("author_location", StringType(), True),
     StructField("author_name", StringType(), True),
