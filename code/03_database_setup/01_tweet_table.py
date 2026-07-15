@@ -200,12 +200,13 @@ CREATE TABLE tweet
     lon                     FLOAT,
     conversation_id         BIGINT,
     text                    TEXT,
-    author_username         VARCHAR(100),
     lang                    VARCHAR(10),
     tweet_type              VARCHAR(20),
     n_hashtags              INTEGER,
     has_entities            BOOLEAN,
-    has_context_annotations BOOLEAN
+    has_context_annotations BOOLEAN,
+    possibly_sensitive      BOOLEAN,
+    withheld                TEXT
 );
 
 RESET ROLE;
@@ -340,12 +341,13 @@ def process_batch(batch, city, batch_index, n_batches, city_start_time):
             col("lon"),
             col("conversation_id"),
             col("text"),
-            col("author_username"),
             col("lang"),
             col("tweet_type"),
             col("n_hashtags"),
             col("has_entities"),
             col("has_context_annotations"),
+            col("possibly_sensitive"),
+            col("withheld"),
         )
     )
 
