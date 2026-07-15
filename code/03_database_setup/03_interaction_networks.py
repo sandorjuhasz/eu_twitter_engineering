@@ -138,13 +138,16 @@ rename_city = {
 }
 
 def extract_mentions(mentions_json_str):
-    """ Extracts mentions from the JSON string representation of mentions. """
     if mentions_json_str is None:
         return []
-    elif type(mentions_json_str):
-        return [mentions_json_str.strip(r"\"")]
-    else:
-        return [elem.strip(r"\"") for elem in mentions_json_str]
+    try:
+        parsed = json.loads(mentions_json_str)
+        if isinstance(parsed, list):
+            return [str(x) for x in parsed if x is not None]
+        return [str(parsed)]
+    except Exception:
+        s = str(mentions_json_str).strip().strip('"')
+        return [s] if s else []
 # UDF for extracting mentions
 extract_mentions_udf = udf(extract_mentions, ArrayType(StringType()))
 
