@@ -205,7 +205,7 @@ for city in ["amsterdam", "portland", "Greater-London"]:
             col("conversation_id"),
             substring(col("created_at"),1,19).alias("created_at"),
             col("author_id").alias("user_id1_source"),
-            col("in_reply_to_user_id").cast(LongType()).alias("user_id2_interaction"),
+            col("in_reply_to_user_id").cast("double").cast("long").alias("user_id2_interaction"),
         )
         .filter(col("user_id2_interaction").isNotNull())
         .withColumn("created_at", to_timestamp(col("created_at"), "yyyy-MM-dd HH:mm:ss"))
