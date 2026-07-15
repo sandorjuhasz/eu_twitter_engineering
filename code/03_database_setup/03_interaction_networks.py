@@ -69,12 +69,12 @@ conn.close()
 spark = SparkSession \
     .builder\
     .config("spark.driver.memory", "50g")\
-    .config("spark.jars","/mnt/common-hdd/bokanyie/postgresql-42.7.8.jar")\
+    .config("spark.jars","/mnt/common-hdd/sandorjuhasz-ab/postgresql-42.7.8.jar")\
     .appName("Python Spark SQL") \
     .getOrCreate()
 
 # setting up postgres connection for spark
-pg_url = "jdbc:postgresql://localhost:5432/twitter_cities_test"
+pg_url = "jdbc:postgresql://localhost:5432/twitter_cities_v2"
 pg_props = {
     "user": json.load(open("connection.json"))["user"],
     "password": json.load(open("connection.json"))["password"],
@@ -158,7 +158,7 @@ for city in ["amsterdam", "portland", "Greater-London"]:
         .option("escape", "\\")
         .option("escape", '"')
         .csv(
-            f'../../data/{city}/tweets/',
+            f'/mnt/common-hdd/raw-sources/twitter-data/data/{city}/tweets/',
             header="True",
             schema=tweets_schema,
             mode="DROPMALFORMED"
