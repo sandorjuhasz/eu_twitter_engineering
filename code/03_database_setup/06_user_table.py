@@ -3,7 +3,7 @@ from pyspark.sql.types import (
     StructType, StructField, StringType,
     LongType, BooleanType, FloatType
 )
-from pyspark.sql.functions import col, substring, to_timestamp
+from pyspark.sql.functions import col, substring, to_timestamp, regexp_replace
 
 import ujson as json
 import os
@@ -260,7 +260,7 @@ def process_batch(batch, city, batch_index, n_batches, city_start_time):
             col("author_id").alias("user_id"),
             col("author_username").alias("username"),
             to_timestamp(
-                substring(col("author_created_at"), 1, 19),
+                regexp_replace(substring(col("author_created_at"), 1, 19), " ", "T"),
                 "yyyy-MM-dd'T'HH:mm:ss"
             ).alias("account_created_at"),
             col("author_description").alias("description"),
