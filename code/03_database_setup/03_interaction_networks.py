@@ -227,11 +227,12 @@ conn = psql.connect(**json.load(open("connection.json")))
 cur = conn.cursor()
 
 query = """
--- add PK to mention network user_id1_source, user_id2_interaction
-ALTER TABLE mention_network ADD PRIMARY KEY (city, user_id1_source, user_id2_interaction, tweet_id);
+SET ROLE twitter_project;
 
--- add PK to reply network user_id1_source, user_id2_interaction
+ALTER TABLE mention_network ADD PRIMARY KEY (city, user_id1_source, user_id2_interaction, tweet_id);
 ALTER TABLE reply_network ADD PRIMARY KEY (city, user_id1_source, user_id2_interaction, tweet_id);
+
+RESET ROLE;
 """
 cur.execute(query)
 conn.commit()
