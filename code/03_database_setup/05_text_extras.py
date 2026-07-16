@@ -88,7 +88,7 @@ def extract_entities(x):
         if entity_text is None:
             continue
         out.append((
-            str(entity_type) if entity_type is not None else None,
+            str(entity_type) if entity_type is not None else "",
             str(entity_text)
         ))
     return out
