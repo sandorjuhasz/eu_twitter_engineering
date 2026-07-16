@@ -60,12 +60,12 @@ conn.close()
 spark = SparkSession \
     .builder\
     .config("spark.driver.memory", "50g")\
-    .config("spark.jars","/mnt/common-hdd/bokanyie/postgresql-42.7.8.jar")\
+    .config("spark.jars","/mnt/common-hdd/sandorjuhasz-ab/postgresql-42.7.8.jar")\
     .appName("Python Spark SQL") \
     .getOrCreate()
 
 # setting up postgres connection for spark
-pg_url = "jdbc:postgresql://localhost:5432/twitter_cities_test"
+pg_url = "jdbc:postgresql://localhost:5432/twitter_cities_v2"
 pg_props = {
     "user": json.load(open("connection.json"))["user"],
     "password": json.load(open("connection.json"))["password"],
@@ -114,8 +114,9 @@ conn = psql.connect(**json.load(open("connection.json")))
 cur = conn.cursor()
 
 query = """
--- add PK to place table
+SET ROLE twitter_project;
 ALTER TABLE place ADD PRIMARY KEY (place_id);
+RESET ROLE;
 """
 cur.execute(query)
 conn.commit()
