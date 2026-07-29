@@ -5,7 +5,7 @@ from pyspark.sql.types import (
 )
 from pyspark.sql.functions import (
     col, lit, size, udf, substring, to_timestamp,
-    split, regexp_replace
+    split, regexp_replace, when, trim
 )
 
 import ujson as json
@@ -26,9 +26,8 @@ BATCH_SIZE = 500
 CITIES = ["Greater-London", "amsterdam", "portland"]
 DATA_ROOT = "/mnt/common-hdd/raw-sources/twitter-data/data/"
 CONNECTION_FILE = "connection.json"
-POSTGRES_JAR = "/mnt/common-hdd/sandorjuhasz-ab/postgresql-42.7.8.jar"
+POSTGRES_JAR = "/mnt/common-hdd/ilyesvirag/postgresql-42.7.8.jar"
 PG_DATABASE = "twitter_cities_v2"
-
 
 # ============================================
 # Logging
@@ -40,6 +39,49 @@ def log(msg):
 
 def format_minutes(seconds):
     return f"{seconds / 60:.1f} min"
+
+
+# ============================================
+# Safe numeric conversion
+# ============================================
+
+def safe_long(colname):
+
+    value = trim(col(colname))
+
+    return (
+        when(value.isNull() | (value == ""), lit(None).cast("long"))
+        .when(value.rlike(r"^[+-]?\d+$"), value.cast("long"))
+        .when(
+            value.rlike(r"^[+-]?\d+\.0+$"),
+            regexp_replace(value, r"\.0+$", "").cast("long"),
+        )
+        .otherwise(lit(None).cast("long"))
+    )
+
+
+SAFE_LONG_COLUMNS = [
+    "author_pinned_tweet_id",
+    "author_pm_listed_count",
+    "conversation_id",
+    "in_reply_to_user_id",
+    "tweet_pm_impression_count",
+]
+
+
+def normalize_and_convert_long_columns(df):
+    """
+    Harmonize the old and new raw schemas, then safely convert the selected
+    integer-like string fields to LongType.
+
+    The old schema lacks tweet_pm_impression_count, so the missing field is
+    introduced as a typed NULL before applying the common conversion logic.
+    """
+    for column_name in SAFE_LONG_COLUMNS:
+        if column_name not in df.columns:
+            df = df.withColumn(column_name, lit(None).cast("string"))
+        df = df.withColumn(column_name, safe_long(column_name))
+    return df
 
 
 # ============================================
@@ -123,10 +165,10 @@ def make_tweets_schema(include_impression_count=True):
         StructField("author_id",                LongType(),    True),
         StructField("author_location",          StringType(),  True),
         StructField("author_name",              StringType(),  True),
-        StructField("author_pinned_tweet_id",   LongType(),    True),
+        StructField("author_pinned_tweet_id",   StringType(),  True),
         StructField("author_pm_followers_count",LongType(),    True),
         StructField("author_pm_following_count",LongType(),    True),
-        StructField("author_pm_listed_count",   LongType(),    True),
+        StructField("author_pm_listed_count",   StringType(),  True),
         StructField("author_pm_tweet_count",    LongType(),    True),
         StructField("author_profile_image_url", StringType(),  True),
         StructField("author_protected",         BooleanType(), True),
@@ -135,7 +177,7 @@ def make_tweets_schema(include_impression_count=True):
         StructField("author_verified",          BooleanType(), True),
         StructField("author_withheld",          StringType(),  False),
         StructField("context_annotations",      StringType(),  True),
-        StructField("conversation_id",          LongType(),    True),
+        StructField("conversation_id",          StringType(),  True),
         StructField("created_at",               StringType(),  False),
         StructField("edit_controls",            StringType(),  False),
         StructField("edit_history_tweet_ids",   StringType(),  True),
@@ -145,7 +187,7 @@ def make_tweets_schema(include_impression_count=True):
         StructField("geo_loc_name",             StringType(),  True),
         StructField("geo_place_id",             StringType(),  True),
         StructField("id",                       LongType(),    False),
-        StructField("in_reply_to_user_id",      LongType(),    True),
+        StructField("in_reply_to_user_id",      StringType(),  True),
         StructField("lang",                     StringType(),  True),
         StructField("possibly_sensitive",       BooleanType(), True),
         StructField("referenced_tweets",        StringType(),  True),
@@ -154,7 +196,7 @@ def make_tweets_schema(include_impression_count=True):
         StructField("text",                     StringType(),  False),
     ]
     if include_impression_count:
-        fields.append(StructField("tweet_pm_impression_count", LongType(), False))
+        fields.append(StructField("tweet_pm_impression_count", StringType(), False))
     fields.extend([
         StructField("tweet_pm_like_count",    LongType(), False),
         StructField("tweet_pm_quote_count",   LongType(), False),
@@ -316,21 +358,37 @@ def process_batch(batch, city, batch_index, n_batches, city_start_time):
 
     tweets_raw = read_batch(batch["paths"], batch["schema"])
 
-    # native lat/lon extraction — no Python UDF serialization overhead
+    # Harmonize the two raw schema versions and convert only the five
+    # diagnosed integer-like string fields.
+    tweets_typed = normalize_and_convert_long_columns(tweets_raw)
+
+    # Native lat/lon extraction — no Python UDF serialization overhead.
     # geo_coo_coordinates format: "[lon, lat]"
-    coords = split(regexp_replace(col("geo_coo_coordinates"), r"[\[\] ]", ""), ",")
+    coords = split(
+        regexp_replace(col("geo_coo_coordinates"), r"[\[\] ]", ""),
+        ",",
+    )
 
     tweets = (
-        tweets_raw
+        tweets_typed
         .withColumn("city", lit(rename_city.get(city)))
         .dropDuplicates(["city", "id"])
-        .withColumn("lat",                    coords.getItem(1).cast(FloatType()))
-        .withColumn("lon",                    coords.getItem(0).cast(FloatType()))
-        .withColumn("created_at",             to_timestamp(substring(col("created_at"), 1, 19), "yyyy-MM-dd HH:mm:ss"))
-        .withColumn("tweet_type",             tweet_type_udf(col("referenced_tweets")))
-        .withColumn("n_hashtags",             count_hashtags_udf(col("entities")))
-        .withColumn("has_entities",           has_entities_udf(col("entities")))
-        .withColumn("has_context_annotations",has_context_ann_udf(col("context_annotations")))
+        .withColumn("lat", coords.getItem(1).cast(FloatType()))
+        .withColumn("lon", coords.getItem(0).cast(FloatType()))
+        .withColumn(
+            "created_at",
+            to_timestamp(
+                substring(col("created_at"), 1, 19),
+                "yyyy-MM-dd HH:mm:ss",
+            ),
+        )
+        .withColumn("tweet_type", tweet_type_udf(col("referenced_tweets")))
+        .withColumn("n_hashtags", count_hashtags_udf(col("entities")))
+        .withColumn("has_entities", has_entities_udf(col("entities")))
+        .withColumn(
+            "has_context_annotations",
+            has_context_ann_udf(col("context_annotations")),
+        )
         .select(
             col("city"),
             col("id").alias("tweet_id"),
@@ -351,16 +409,24 @@ def process_batch(batch, city, batch_index, n_batches, city_start_time):
         )
     )
 
-    tweets.write.mode("append").jdbc(
+    # Keep only rows that satisfy PostgreSQL NOT NULL constraints.
+    valid_tweets = tweets.filter(
+        col("city").isNotNull()
+        & col("tweet_id").isNotNull()
+        & col("user_id").isNotNull()
+        & col("created_at").isNotNull()
+    )
+
+    valid_tweets.write.mode("append").jdbc(
         url=pg_url,
         table="tweet",
         properties=pg_props,
     )
 
-    batch_elapsed  = time.perf_counter() - batch_start
-    city_elapsed   = time.perf_counter() - city_start_time
-    avg_per_batch  = city_elapsed / batch_index
-    eta_seconds    = avg_per_batch * (n_batches - batch_index)
+    batch_elapsed = time.perf_counter() - batch_start
+    city_elapsed = time.perf_counter() - city_start_time
+    avg_per_batch = city_elapsed / batch_index
+    eta_seconds = avg_per_batch * (n_batches - batch_index)
 
     log(
         f"{city}: batch {batch_index}/{n_batches} done"
@@ -418,6 +484,36 @@ for city in CITIES:
 
 spark.stop()
 log(f"All cities done | total {format_minutes(time.perf_counter() - overall_start)}")
+
+
+# ============================================
+# Global deduplication
+# ============================================
+
+log("Removing global tweet duplicates")
+
+conn = psql.connect(**json.load(open(CONNECTION_FILE)))
+cur = conn.cursor()
+
+cur.execute("""
+SET ROLE twitter_project;
+
+DELETE FROM tweet a
+USING tweet b
+WHERE a.ctid < b.ctid
+  AND a.city = b.city
+  AND a.tweet_id = b.tweet_id;
+
+RESET ROLE;
+""")
+
+deleted_rows = cur.rowcount
+
+conn.commit()
+cur.close()
+conn.close()
+
+log(f"Global tweet deduplication done | deleted rows: {deleted_rows:,}")
 
 
 # ============================================

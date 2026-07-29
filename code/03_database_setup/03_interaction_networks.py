@@ -3,7 +3,10 @@ from pyspark.sql.types import (
     StructType, StructField, StringType,
     LongType, BooleanType
 )
-from pyspark.sql.functions import col, lit, explode, udf, substring, to_timestamp, get_json_object
+from pyspark.sql.functions import (
+    col, lit, explode, udf, substring, to_timestamp,
+    get_json_object, when, trim, regexp_replace
+)
 from pyspark import StorageLevel
 
 import psycopg2 as psql
@@ -22,7 +25,7 @@ BATCH_SIZE = 500
 CITIES = ["Greater-London", "amsterdam", "portland"]
 DATA_ROOT = "/mnt/common-hdd/raw-sources/twitter-data/data/"
 CONNECTION_FILE = "connection.json"
-POSTGRES_JAR = "/mnt/common-hdd/sandorjuhasz-ab/postgresql-42.7.8.jar"
+POSTGRES_JAR = "/mnt/common-hdd/ilyesvirag/postgresql-42.7.8.jar"
 PG_DATABASE = "twitter_cities_v2"
 
 
@@ -39,6 +42,35 @@ def format_minutes(seconds):
 
 
 # ============================================
+# Safe numeric conversion
+# ============================================
+
+def safe_long(colname):
+    value = trim(col(colname))
+    return (
+        when(value.isNull() | (value == ""), lit(None).cast("long"))
+        .when(value.rlike(r"^[+-]?\d+$"), value.cast("long"))
+        .when(value.rlike(r"^[+-]?\d+\.0+$"),
+              regexp_replace(value,r"\.0+$","").cast("long"))
+        .otherwise(lit(None).cast("long"))
+    )
+
+SAFE_LONG_COLUMNS=[
+    "author_pinned_tweet_id",
+    "author_pm_listed_count",
+    "conversation_id",
+    "in_reply_to_user_id",
+    "tweet_pm_impression_count",
+]
+
+def normalize_and_convert_long_columns(df):
+    for c in SAFE_LONG_COLUMNS:
+        if c not in df.columns:
+            df=df.withColumn(c,lit(None).cast("string"))
+        df=df.withColumn(c,safe_long(c))
+    return df
+
+# ============================================
 # Input schema (two variants: with/without impression count)
 # ============================================
 
@@ -51,10 +83,10 @@ def make_tweets_schema(include_impression_count=True):
         StructField("author_id",                 LongType(),    True),
         StructField("author_location",           StringType(),  True),
         StructField("author_name",               StringType(),  True),
-        StructField("author_pinned_tweet_id",    LongType(),    True),
+        StructField("author_pinned_tweet_id",    StringType(),  True),
         StructField("author_pm_followers_count", LongType(),    True),
         StructField("author_pm_following_count", LongType(),    True),
-        StructField("author_pm_listed_count",    LongType(),    True),
+        StructField("author_pm_listed_count",    StringType(),  True),
         StructField("author_pm_tweet_count",     LongType(),    True),
         StructField("author_profile_image_url",  StringType(),  True),
         StructField("author_protected",          BooleanType(), True),
@@ -63,7 +95,7 @@ def make_tweets_schema(include_impression_count=True):
         StructField("author_verified",           BooleanType(), True),
         StructField("author_withheld",           StringType(),  True),
         StructField("context_annotations",       StringType(),  True),
-        StructField("conversation_id",           LongType(),    True),
+        StructField("conversation_id",           StringType(),  True),
         StructField("created_at",                StringType(),  True),
         StructField("edit_controls",             StringType(),  True),
         StructField("edit_history_tweet_ids",    StringType(),  True),
@@ -82,7 +114,7 @@ def make_tweets_schema(include_impression_count=True):
         StructField("text",                      StringType(),  True),
     ]
     if include_impression_count:
-        fields.append(StructField("tweet_pm_impression_count", LongType(), True))
+        fields.append(StructField("tweet_pm_impression_count", StringType(), True))
     fields.extend([
         StructField("tweet_pm_like_count",    LongType(), True),
         StructField("tweet_pm_quote_count",   LongType(), True),
@@ -263,9 +295,10 @@ def process_batch(batch, city, batch_index, n_batches, city_start_time):
     batch_start = time.perf_counter()
 
     tweets_raw = read_batch(batch["paths"], batch["schema"])
+    tweets_typed = normalize_and_convert_long_columns(tweets_raw)
 
     tweets = (
-        tweets_raw
+        tweets_typed
         .withColumn("city", lit(rename_city.get(city)))
         .select("city", "id", "created_at", "author_id",
                 "entities", "in_reply_to_user_id", "conversation_id")
@@ -299,7 +332,7 @@ def process_batch(batch, city, batch_index, n_batches, city_start_time):
             col("conversation_id"),
             to_timestamp(substring(col("created_at"), 1, 19), "yyyy-MM-dd HH:mm:ss").alias("created_at"),
             col("author_id").alias("user_id1_source"),
-            col("in_reply_to_user_id").cast("double").cast("long").alias("user_id2_interaction"),
+            col("in_reply_to_user_id").alias("user_id2_interaction"),
         )
         .filter(col("user_id2_interaction").isNotNull())
         .dropDuplicates(["city", "tweet_id", "user_id1_source", "user_id2_interaction"])
@@ -369,6 +402,44 @@ for city in CITIES:
 
 spark.stop()
 log(f"All cities done | total {format_minutes(time.perf_counter() - overall_start)}")
+
+
+# ============================================
+# Global deduplication
+# ============================================
+
+log("Removing global duplicates")
+
+conn = psql.connect(**json.load(open(CONNECTION_FILE)))
+cur = conn.cursor()
+
+cur.execute("""
+SET ROLE twitter_project;
+
+DELETE FROM mention_network a
+USING mention_network b
+WHERE a.ctid < b.ctid
+  AND a.city = b.city
+  AND a.tweet_id = b.tweet_id
+  AND a.user_id1_source = b.user_id1_source
+  AND a.user_id2_interaction = b.user_id2_interaction;
+
+DELETE FROM reply_network a
+USING reply_network b
+WHERE a.ctid < b.ctid
+  AND a.city = b.city
+  AND a.tweet_id = b.tweet_id
+  AND a.user_id1_source = b.user_id1_source
+  AND a.user_id2_interaction = b.user_id2_interaction;
+
+RESET ROLE;
+""")
+
+conn.commit()
+cur.close()
+conn.close()
+
+log("Global deduplication done")
 
 
 # ============================================

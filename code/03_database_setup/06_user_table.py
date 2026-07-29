@@ -3,7 +3,10 @@ from pyspark.sql.types import (
     StructType, StructField, StringType,
     LongType, BooleanType, FloatType
 )
-from pyspark.sql.functions import col, substring, to_timestamp, regexp_replace
+from pyspark.sql.functions import (
+    col, substring, to_timestamp, regexp_replace,
+    when, trim, lit
+)
 
 import ujson as json
 import os
@@ -21,7 +24,7 @@ BATCH_SIZE = 500
 CITIES = ["Greater-London", "amsterdam", "portland"]
 DATA_ROOT = "/mnt/common-hdd/raw-sources/twitter-data/data/"
 CONNECTION_FILE = "connection.json"
-POSTGRES_JAR = "/mnt/common-hdd/sandorjuhasz-ab/postgresql-42.7.8.jar"
+POSTGRES_JAR = "/mnt/common-hdd/ilyesvirag/postgresql-42.7.8.jar"
 PG_DATABASE = "twitter_cities_v2"
 
 USER_TABLE         = "twitter_user"
@@ -41,6 +44,35 @@ def format_minutes(seconds):
 
 
 # ============================================
+# Safe numeric conversion
+# ============================================
+
+def safe_long(colname):
+    value=trim(col(colname))
+    return (
+        when(value.isNull() | (value==""), lit(None).cast("long"))
+        .when(value.rlike(r"^[+-]?\d+$"), value.cast("long"))
+        .when(value.rlike(r"^[+-]?\d+\.0+$"),
+              regexp_replace(value,r"\.0+$","").cast("long"))
+        .otherwise(lit(None).cast("long"))
+    )
+
+SAFE_LONG_COLUMNS=[
+    "author_pinned_tweet_id",
+    "author_pm_listed_count",
+    "conversation_id",
+    "in_reply_to_user_id",
+    "tweet_pm_impression_count",
+]
+
+def normalize_and_convert_long_columns(df):
+    for c in SAFE_LONG_COLUMNS:
+        if c not in df.columns:
+            df=df.withColumn(c,lit(None).cast("string"))
+        df=df.withColumn(c,safe_long(c))
+    return df
+
+# ============================================
 # Input schema (two variants: with/without impression count)
 # ============================================
 
@@ -53,10 +85,10 @@ def make_tweets_schema(include_impression_count=True):
         StructField("author_id",                 LongType(),    True),
         StructField("author_location",           StringType(),  True),
         StructField("author_name",               StringType(),  True),
-        StructField("author_pinned_tweet_id",    LongType(),    True),
+        StructField("author_pinned_tweet_id",    StringType(),  True),
         StructField("author_pm_followers_count", LongType(),    True),
         StructField("author_pm_following_count", LongType(),    True),
-        StructField("author_pm_listed_count",    LongType(),    True),
+        StructField("author_pm_listed_count",    StringType(),  True),
         StructField("author_pm_tweet_count",     LongType(),    True),
         StructField("author_profile_image_url",  StringType(),  True),
         StructField("author_protected",          BooleanType(), True),
@@ -65,7 +97,7 @@ def make_tweets_schema(include_impression_count=True):
         StructField("author_verified",           BooleanType(), True),
         StructField("author_withheld",           StringType(),  True),
         StructField("context_annotations",       StringType(),  True),
-        StructField("conversation_id",           LongType(),    True),
+        StructField("conversation_id",           StringType(),  True),
         StructField("created_at",                StringType(),  True),
         StructField("edit_controls",             StringType(),  True),
         StructField("edit_history_tweet_ids",    StringType(),  True),
@@ -75,7 +107,7 @@ def make_tweets_schema(include_impression_count=True):
         StructField("geo_loc_name",              StringType(),  True),
         StructField("geo_place_id",              StringType(),  True),
         StructField("id",                        LongType(),    False),
-        StructField("in_reply_to_user_id",       LongType(),    True),
+        StructField("in_reply_to_user_id",       StringType(),  True),
         StructField("lang",                      StringType(),  True),
         StructField("possibly_sensitive",        BooleanType(), True),
         StructField("referenced_tweets",         StringType(),  True),
@@ -84,7 +116,7 @@ def make_tweets_schema(include_impression_count=True):
         StructField("text",                      StringType(),  False),
     ]
     if include_impression_count:
-        fields.append(StructField("tweet_pm_impression_count", LongType(), True))
+        fields.append(StructField("tweet_pm_impression_count", StringType(), True))
     fields.extend([
         StructField("tweet_pm_like_count",    LongType(), True),
         StructField("tweet_pm_quote_count",   LongType(), True),
@@ -252,6 +284,7 @@ def process_batch(batch, city, batch_index, n_batches, city_start_time):
     batch_start = time.perf_counter()
 
     tweets_raw = read_batch(batch["paths"], batch["schema"])
+    tweets_raw = normalize_and_convert_long_columns(tweets_raw)
 
     users = (
         tweets_raw

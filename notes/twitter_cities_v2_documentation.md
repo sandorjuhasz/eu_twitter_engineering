@@ -234,18 +234,18 @@ The user table stores the author `pm_` columns. Because each user appears in man
 
 ## 5. Row count comparison
 
-| Table | twitter_cities_test | twitter_cities_v2 | Change |
+| Table | twitter_cities_test | twitter_cities_v3 | Change |
 |---|--:|--:|---|
-| tweet | 162,729,490 | 162,722,050 | -7K (stricter parsing) |
-| mention_network | 52,803,620 | 124,420,664 | +136% (pipeline fix) |
-| reply_network | 61,289,900 | 69,370,856 | +13% (pipeline fix) |
+| tweet | 162,729,490 | 164,241,427 | +1.51M (+0.93%) |
+| mention_network | 52,803,620 | 125,375,467 | +137% (pipeline fix) |
+| reply_network | 61,289,900 | 61,883,104 | +593K (+0.97%) |
 | place | 34,097 | 33,983 | -114 (cleaner dedup) |
-| tweet_context_annotation | 117,561,600 | 117,561,600 | identical |
-| tweet_entity_annotation | 116,008,810 | 116,008,810 | identical |
-| tweet_hashtag | 80,312,536 | 80,312,536 | identical |
+| tweet_context_annotation | 117,561,600 | 117,561,599 | -1 |
+| tweet_entity_annotation | 116,008,810 | 116,008,811 | +1 |
+| tweet_hashtag | 80,312,536 | 80,312,534 | -2 |
 | tweet_extra | 164,241,420 | — | merged into tweet |
 | follower_network | (partial) | — | not built |
-| twitter_user | — | 2,846,531 | new table |
+| twitter_user | — | 2,847,711 | new table |
 
 The large jump in `mention_network` is expected: the old pipeline used `inferSchema` and dropped rows whenever files had 41 vs. 42 columns. The v2 pipeline handles both schemas explicitly.
 
