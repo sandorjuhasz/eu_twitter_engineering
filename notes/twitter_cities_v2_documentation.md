@@ -234,7 +234,7 @@ The user table stores the author `pm_` columns. Because each user appears in man
 
 ## 5. Row count comparison
 
-| Table | twitter_cities_test | twitter_cities_v3 | Change |
+| Table | twitter_cities_test | twitter_cities_v2 | Change |
 |---|--:|--:|---|
 | tweet | 162,729,490 | 164,241,427 | +1.51M (+0.93%) |
 | mention_network | 52,803,620 | 125,375,467 | +137% (pipeline fix) |

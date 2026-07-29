@@ -1,5 +1,5 @@
 {
-    "database": "twitter_cities",
+    "database": "twitter_cities_v2",
     "user": "username", 
     "host": "localhost",
     "password": "password",
