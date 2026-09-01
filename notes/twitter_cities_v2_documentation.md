@@ -41,7 +41,7 @@ Built by `code/03_database_setup/01_tweet_table.py`. One row per unique tweet.
 | `conversation_id` | BIGINT | Thread root tweet ID |
 | `text` | TEXT | Tweet text |
 | `lang` | VARCHAR(10) | Language detected by Twitter |
-| `tweet_type` | VARCHAR(20) | `original` / `reply` / `quote` / `retweet` — derived from `referenced_tweets` |
+| `tweet_type` | VARCHAR(20) | `original` / `reply` / `quote` / `retweet` — derived from `referenced_tweets` + regex |
 | `n_hashtags` | INTEGER | Number of hashtags in the tweet |
 | `has_entities` | BOOLEAN | True if tweet has entity annotations (named entities) |
 | `has_context_annotations` | BOOLEAN | True if tweet has context annotations (topic/domain labels) |

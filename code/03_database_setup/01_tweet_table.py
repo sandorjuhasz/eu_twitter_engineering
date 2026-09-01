@@ -113,8 +113,6 @@ def get_tweet_type_from_ref(ref):
         return "reply"
     elif "quoted" in types:
         return "quote"
-    elif "retweeted" in types:
-        return "retweet"
     else:
         return "original"
 
@@ -382,7 +380,14 @@ def process_batch(batch, city, batch_index, n_batches, city_start_time):
                 "yyyy-MM-dd HH:mm:ss",
             ),
         )
-        .withColumn("tweet_type", tweet_type_udf(col("referenced_tweets")))
+        .withColumn(
+            "tweet_type",
+            when(
+                col("text").isNotNull()
+                & col("text").rlike(r"(?i)^\s*RT\s+@"),
+                lit("retweet")
+            ).otherwise(tweet_type_udf(col("referenced_tweets")))
+        )
         .withColumn("n_hashtags", count_hashtags_udf(col("entities")))
         .withColumn("has_entities", has_entities_udf(col("entities")))
         .withColumn(
@@ -534,6 +539,7 @@ CREATE INDEX idx_tweet_user_id          ON tweet (user_id);
 CREATE INDEX idx_tweet_created_at       ON tweet (created_at);
 CREATE INDEX idx_tweet_city_created_at  ON tweet (city, created_at);
 CREATE INDEX idx_tweet_place_id         ON tweet (place_id);
+CREATE INDEX idx_tweet_tweet_type       ON tweet (tweet_type);
 
 RESET ROLE;
 """)
