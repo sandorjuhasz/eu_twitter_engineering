@@ -210,3 +210,7 @@ __marimo__/
 code/03_database_setup/connection.json
 
 outputs
+
+# macOS Finder metadata
+.DS_Store
+._*
