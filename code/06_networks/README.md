@@ -1,9 +1,13 @@
 # Interaction networks --- Documentation
 
 **Database:** `twitter_cities_v2`
+
 **Network source:** `interaction_table`
+
 **Network tables:** `interaction_network_directed`, `interaction_network_undirected`
+
 **Descriptive analysis currently implemented for:** London
+
 **Observed London interaction period in the executed notebooks:** 2013-01-01 to 2022-12-31
 
 ---
