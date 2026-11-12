@@ -435,3 +435,62 @@ select city
 from pair
 group by city, res, split
 order by city, res desc, split;
+
+
+-- ------------------------------------------------------------
+-- V9  Hotspot cells: single res 10 cells hold thousands of homes
+--     (home_overview maps: ams 1,132, lon 5,474, pdx 587). For the
+--     top 5 home cells per city, the most used exact coordinates
+--     inside the cell: one point shared by many users = a default /
+--     venue coordinate posted by an app, not a device GPS fix.
+--     Scans home_input once (no index on cell_10): about a minute.
+-- ------------------------------------------------------------
+with top as (
+    select city, cell, n_homes
+    from (
+        select city
+             , cell
+             , count(*)                                                   as n_homes
+             , row_number() over (partition by city order by count(*) desc) as rk
+        from revised.home_final
+        where res = 10
+        group by city, cell
+    ) x
+    where rk <= 5
+)
+, pts as (
+    select i.city
+         , i.cell_10
+         , t.lat
+         , t.lon
+         , count(*)                    as n_tweets
+         , count(distinct i.user_id)   as n_users
+    from revised.home_input i
+    join top
+      on top.city = i.city and top.cell = i.cell_10
+    join revised.tweet t
+      on t.city = i.city and t.tweet_id = i.tweet_id
+    group by i.city, i.cell_10, t.lat, t.lon
+)
+, ranked as (
+    select p.*
+         , sum(n_tweets) over (partition by city, cell_10)                       as n_cell_tweets
+         , count(*) over (partition by city, cell_10)                            as n_points
+         , row_number() over (partition by city, cell_10 order by n_tweets desc) as rk
+    from pts p
+)
+select r.city
+     , r.cell_10::text                                         as cell
+     , top.n_homes
+     , r.n_cell_tweets
+     , r.n_points                                              as n_distinct_points
+     , r.lat
+     , r.lon
+     , r.n_tweets                                              as n_tweets_top_point
+     , r.n_users                                               as n_users_top_point
+     , round(r.n_tweets::numeric / r.n_cell_tweets, 3)         as share_top_point
+from ranked r
+join top
+  on top.city = r.city and top.cell = r.cell_10
+where r.rk <= 2
+order by r.city, top.n_homes desc, r.rk;
