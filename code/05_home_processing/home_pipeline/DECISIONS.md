@@ -10,8 +10,12 @@ why it matters and how to check it. The parameter names match `config.yaml` (not
 `--run-label`, compare the runs with the diagnostics, then update the entry (date, evidence, status).
 Every run stores its parameters in `home_run.params`, so old results stay reproducible.
 
-Origin: the first version of these rules comes from the `_zi` code (`TWITTER_FINAL.ipynb`) and
-`home_location_inference_tables.ipynb`. "Legacy" below means what those notebooks do.
+**Goals (2026-11-11):** (1) homes as accurate as we can make them; (2) as many users with a home as the evidence
+allows. A home needs both a minimum activity and minimum night evidence in the home cell (D05), and every home
+carries a confidence tier (D16).
+
+Origin: the first version of these rules comes from the `_zi` code (`../zita_notebooks/TWITTER_FINAL.ipynb`) and
+`../zita_notebooks/home_location_inference_tables.ipynb`. "Legacy" below means what those notebooks do.
 
 ---
 
@@ -24,7 +28,15 @@ Origin: the first version of these rules comes from the `_zi` code (`TWITTER_FIN
 ## D02. Night window hours
 - **Parameters:** `night_start` = 20, `night_end` = 8
 - **Legacy:** `hour < 8 or hour >= 20`
-- **Status:** open
+- **C10 result (2026-11-07):** in local time all cities bottom out at 04-05h but **peak at 20-21h**, so 20-08
+  starts at the busiest hour of the day (evenings out, not only at home). 20-08 holds ~37% of tweets, 22-07 ~21%.
+- **V4 result (2026-11-12):** with `nights`, 95-97% of users who have a home in both windows get the same cell, so
+  the window choice hardly changes homes; 20-08 gives more users (22-07 keeps ~65-73%). Keeps 20-08 as default.
+- **Proposed default:** 20-08 local (comparable with legacy and the literature, keeps the most signal);
+  sensitivity run with 22-07. Compare how many homes change between the two.
+- **Implementation:** `02_user_cell_counts.sql` stores night counts for both windows (`n_night_20_08`,
+  `n_night_22_07`) in `home_user_cell`, so the sensitivity run needs no second pass.
+- **Status:** proposed
 - **Check:** hour-of-day histogram of tweets per city (in local time). The night window should sit on the low
   part of the curve.
 
@@ -35,7 +47,8 @@ Origin: the first version of these rules comes from the `_zi` code (`TWITTER_FIN
   22:00-10:00 in Amsterdam. Portland "homes" are mostly picked from daytime tweets.
 - **Default:** `local`, using `Europe/London`, `Europe/Amsterdam`, `America/Los_Angeles` (daylight saving handled by
   Postgres). `utc` stays available to reproduce legacy results.
-- **Status:** proposed. Check C03 in `00_checks.sql` to confirm the column type.
+- **Status:** settled (2026-11-07): `local`. C03 confirmed the type; C10 shows UTC 20-08 covers 69% of Portland's
+  tweets, mostly afternoon and evening.
 - **Check:** night-hour histogram per city under both modes; detection rate per city under both modes.
 
 ## D04. Time window
@@ -43,6 +56,8 @@ Origin: the first version of these rules comes from the `_zi` code (`TWITTER_FIN
 - **Legacy:** `date_trunc('year', created_at) between date '2013-01-01' and date '2017-01-01'`. This works, and
   includes all of 2017, but only by accident of truncation. The new code uses an explicit half-open range
   (`>= 2013-01-01 and < 2018-01-01`).
+- **Note (01 run, 2026-11-07):** the window is cut in UTC, so in local time it runs e.g. 2012-12-31 16:00 to
+  2017-12-31 16:00 in Portland and 01:00 to 01:00 in Amsterdam. A few hours at each end of five years: ignored.
 - **Later:** yearly or rolling windows. The output schema already has `window_id`; the logic does not.
 - **Status:** proposed
 
@@ -52,12 +67,24 @@ Origin: the first version of these rules comes from the `_zi` code (`TWITTER_FIN
   to be a candidate.
 - **Note:** the second threshold is applied per hexagon *after* roll-up to each resolution, so it is not the same
   tweets at res 10 and res 8.
-- **Status:** open
-- **Check:** how detection rate and home share change with 10 / 20 / 50 tweets and 1 / 2 / 3 night tweets.
+- **Parameters (2026-11-11):** `min_user_tweets` = 10, `min_home_nights` = 3, for `nights` and `night_tweets`.
+- **Rule:** the user has >= `min_user_tweets` tweets in the city, and the home cell has >= `min_home_nights`
+  distinct nights (D15) and strictly more nights than the user's second cell; otherwise no home.
+  The tweet floor was added so a user with only 3 tweets on 3 nights cannot get a home; 10 sits between no floor
+  and the legacy 20. Candidate cells: >= 1 night tweet. The legacy gates
+  (20 tweets / 2 night tweets per cell) stay on the `ratio` method only, to reproduce the first run.
+- **Why:** total activity is the wrong gate. 20+ users whose best cell has only 1 night: ams 3,310, lon 29,739,
+  pdx 2,966 (legacy gives them a home); users with < 20 tweets but several nights in one cell get none. A first
+  version with no gate (any night tweet) gave homes to 54-64% of users, ~80% of them on a single night: too loose.
+- **Evidence (03 v2, nights, 20-08, res 9, untied homes by nights in cell):** >= 2 nights: ams 25,592 / lon 214,391 /
+  pdx 17,958; >= 3 nights: 12,509 / 150,228 / 11,828; legacy ratio: 13,735 / 167,008 / 14,322. N = 3 keeps a user
+  count close to legacy with every home seen on 3+ different nights; two nights can be a single weekend away.
+- **Status:** proposed (sensitivity: nights 2, tweets 5 / 20)
+- **Check:** `03` V5 (homes by activity bucket, shows what 20 would cut); D16 stability checks by bucket.
 
 ## D06. Tweets with coordinates
 - **Rule:** tweets with `lat` and `lon` are used as they are. `lat`/`lon` are 32-bit floats from the load
-  (about 1 m precision), well below H3 res 10 (about 65 m edge), so no issue.
+  (about 1 m precision), well below H3 res 10 (about 65 m edge), so no issue. In the `revised` schema they are `double precision` (full precision).
 - **Status:** proposed
 
 ## D07. Tweets with only a Place (no coordinates)
@@ -67,8 +94,15 @@ Origin: the first version of these rules comes from the `_zi` code (`TWITTER_FIN
   1. Unit of `err`. `twitter_cities_v2_documentation.md` says metres; the old notebooks never state it. If it is km,
      the filter does almost nothing. Check C05.
   2. Many tweets share one centroid, so the centroid's hexagon can win as "home" by sheer count.
-- **Default:** keep them, but store a `src` flag (`gps` / `place_centroid`) so a run can exclude them.
-- **Status:** open
+- **C05 result (2026-11-07):** err is in metres; the filter effectively means "POI places" (all POIs have err = 0)
+  plus 15 non-POI places, some of which have err = 0 because their bbox is degenerate (a city cannot be 0 m wide).
+  Proposed refinement: accept `place_type = 'poi'`, plus non-POI places only with `0 < err < 200`. Open question: POI
+  tweets are often venue check-ins (bars, stations), which are not homes; decide after C06 shows their share.
+- **C06 result (2026-11-07):** place-only tweets are negligible: 0 in London, 40 in Amsterdam, 57k in Portland
+  (1.3% of Portland's located tweets, almost all POI check-ins).
+- **Default (changed):** GPS only (`use_place_centroids` = false). Removes the check-in and broken-bbox problems at
+  almost no cost in coverage. The `src` flag stays so a run with centroids can still be compared.
+- **Status:** proposed
 - **Check:** share of homes whose winning cell has mostly centroid tweets; compare against a GPS-only run.
 
 ## D08. City bounding boxes
@@ -81,12 +115,25 @@ Origin: the first version of these rules comes from the `_zi` code (`TWITTER_FIN
   | amsterdam | 52.2781742 | 52.4310638 | 4.7287776 | 5.0791622 |
 
 - **Note:** these are rectangles. London's covers more than Greater London. The boxes do not overlap.
+- **Refinement (2026-11-07, `01_home_input.sql`):** a tweet must fall inside the box of its own `city` label, so the
+  home-input city always equals the `city` used in the `(city, tweet_id)` key of `tweet` and the networks. C06
+  matched boxes on coordinates only; the V1 counts in `01_home_input.sql` show whether this drops anything.
 - **Status:** proposed
 
 ## D09. Home scope: per user or per user and city
 - **Legacy:** one home per user across all cities (ranking is over all of the user's hexagons).
 - **Open:** a user with tweets in two city boxes gets one home in one city. Check C08 for how many users this is.
-- **Status:** open
+- **C08 result (2026-11-07):** 1% user sample, all years and tweets: 2,415 of 34,378 users (7.0%) tweet in more than
+  one city, i.e. roughly 240k users overall. Likely an upper bound: the home input (2013-2017, gps, in bbox, minimum
+  activity) will drop most visitors with a handful of tweets. Still higher than expected for three cities: suspected
+  bots / automated accounts (job, weather, cross-posting) and possibly how the collection assigned the `city` label.
+  Not pursued with more full scans; `05_diagnostics.sql` profiles multi-city users on the slim input (city pairs,
+  tweet volume, homes in 2+ cities), and D05 / D12 thresholds are tuned from there.
+- **Proposal:** detect home per `(user, city)`, with the minimum-activity rule (D05) applied per `(user, city)`.
+  `home_location` gets `n_home_cities` and `is_primary` (city with the most night tweets; tie-break all tweets). Analyses
+  wanting one home per user filter `is_primary`; city-level networks use the city's own home. Diagnostics report how
+  many users end up with homes in two cities.
+- **Status:** proposed
 
 ## D10. Ranking of candidate hexagons
 - **Parameter:** `ranking` = `ratio` (legacy)
@@ -96,21 +143,35 @@ Origin: the first version of these rules comes from the `_zi` code (`TWITTER_FIN
   night can beat the real home.
 - **Alternatives to compare:** most night tweets; ratio with shrinkage (e.g. add pseudo-counts); require a minimum
   share of the user's night tweets.
-- **Status:** open
-- **Check:** margin between best and second-best hexagon (stored as `ratio_second`), and how often different
-  rankings choose different cells.
+- **03 first run (2026-11-11), ratio, 20-08, res 10:** avg ratio of the home cell ~0.8, but the home holds only
+  21-24% of the user's tweets and 31-37% of their night tweets; about a third of homes tie with the second cell on
+  ratio (london 53,643 of 164,458), mostly small cells at ratio 1.0. The ratio picks small, all-night cells, not the
+  place with the most night activity. Confirms the problem above.
+- **Change (2026-11-11):** `method` column in `home_location`, three methods side by side:
+  `nights` (most distinct nights in the cell, D15; ties: night tweets, all tweets, cell) = **proposed default**;
+  `night_tweets` (most night tweets; ties: nights, all tweets, cell); `ratio` (legacy, legacy gates).
+  Distinct nights, not tweet counts, because a single burst (an evening of 15 tweets at a bar or event) counts once;
+  "distinct days" criteria are the usual choice in the mobile-phone home detection literature for the same reason.
+- **Status:** proposed; V2 (2026-11-11): `nights` and `night_tweets` agree on 99.8% of users, `ratio` on only 34-47%.
+- **Check:** `03` V2 (agreement between methods, nights the ratio home keeps), V4 (window stability per method);
+  D16 stability checks.
 
 ## D11. Tweet types
-- **Parameter:** `tweet_types` = all
+- **Parameter:** `tweet_types` = original, reply, quote
 - **Legacy:** all rows in `tweet` are used, including retweets and quotes.
 - **Open:** whether retweets and quotes carry a location that tells us where the user is. See C09 for the counts.
-- **Status:** open
+- **C09 result (2026-11-07):** 2013-2017 gps share by type: original 51.5%, reply 38.7%, quote 1.3%, retweet 47.8%
+  (of only 69k retweets). Quotes and retweets together are 81k of 46.8M gps tweets (0.17%), so the choice barely
+  matters. Retweets are dropped anyway: native retweets carry no geo, so a 48% gps share suggests the coordinates may
+  come from the retweeted tweet (another user's location) or from old manual "RT" tweets. Quotes are written by the
+  user and kept.
+- **Status:** proposed
 
 ## D12. "No home" rule
 - **Rule:** a user has a home at a resolution only if at least one hexagon has `min_night_per_cell` night tweets.
 - **Legacy:** this is implicit. The ranking picks a "top" hexagon even when no hexagon qualifies, and the Y/N flag
   only ends up Y because the night count is NULL for it.
-- **New code:** explicit. Users without a qualifying hexagon get no `user_home` row at that resolution.
+- **New code:** explicit. Users without a qualifying hexagon get no `home_location` row at that resolution.
 - **Status:** proposed
 
 ## D13. Network edges "same home location"
@@ -118,29 +179,107 @@ Origin: the first version of these rules comes from the `_zi` code (`TWITTER_FIN
   have a home flag in the same city box as the tweet. They do **not** compare hexagons, so the name overstates it.
 - **Join key:** the legacy SQL joins `mention_network` / `reply_network` to `tweet` on `tweet_id` only; the key is
   `(city, tweet_id)`. Check C07.
+- **C07 result (2026-11-07):** 0 tweet_ids occur in more than one city, so legacy joins on `tweet_id` alone did not
+  duplicate rows. New code still joins on `(city, tweet_id)` to match the PK and use the index.
+- **Keys in `revised` (2026-11-07):** `tweet` PK `(city, tweet_id)`; `mention_network` and `reply_network` PK
+  `(city, user_id1_source, user_id2_interaction, tweet_id)`; `place` PK `place_id`. So the join to `tweet` must use
+  `(city, tweet_id)`, and the user columns are `user_id1_source` (author) and `user_id2_interaction` (mentioned / replied-to user).
 - **New code:** `mention_network_home` / `reply_network_home`, joined on `(city, tweet_id)`. A stricter "same
   hexagon / within distance" variant can be added later and named accordingly.
 - **Status:** open
 
 ## D14. Technical choices (not methodological)
 - H3 computed once at res 10; res 9 and 8 via `h3_cell_to_parent`. Exact, since counts add up under roll-up.
-- Intermediates are `UNLOGGED`; the result table `user_home` is a normal table.
+- h3 functions are called with the schema prefix and the new name: `public.h3_latlng_to_cell`, `public.h3_cell_to_parent`.
+- Scripts that compare two h3 cells set `search_path = revised, public` in S1: the `h3index` operators live in
+  `public`, and a `revised`-only path gives "operator does not exist: public.h3index = public.h3index" (03, 2026-11-11).
+- Intermediates are `UNLOGGED`; the result table `home_location` is a normal table.
+- Pipeline tables live in schema `revised` with the prefix `home_` (`home_input`, ...), so they group together and
+  can be dropped without touching the core tables (agreed 2026-11-07).
+- `home_input` (step 01) holds only filters that no sensitivity run changes (D03, D04, D07, D08, D11, res-10 cell);
+  night window, minimum activity and ranking are applied in later steps, so it is built once.
 - All DDL wrapped in `SET ROLE twitter_project; ... RESET ROLE;`.
 - **Status:** proposed
+
+
+## D15. Counting nights
+- **Rule:** a night is the local evening plus the following morning: `night_date = (created_local - 8 hours)::date`.
+  20:00 on day D and 07:59 on day D+1 are both night D; the same date works for 22-07.
+- **Stored:** `home_user_cell_nights.d_night_20_08 / d_night_22_07` per (city, user, res, cell), computed at each
+  res separately (distinct counts do not add up under roll-up, unlike D14); `home_user.d_night_*` and `d_active`
+  per (city, user).
+- **Status:** proposed
+
+## D16. Confidence tiers
+- **Parameter:** `high_min_nights` = 5
+- **Rule:** `high`: home cell has >= 5 distinct nights and strictly more nights than the second cell. `medium`: >= 2
+  nights and strictly more than the second cell (with the D05 gate: 3-4 nights). `low`: the rest (one night, or a
+  tie; only `ratio` rows). Computed from nights for every method, so for `ratio` it describes the evidence, not the
+  ranking. A label only: it never removes a home.
+- **History:** first version (2026-11-11) also required >= 50% of the user's nights for `high`. V5 showed the share of
+  `high` fell with activity (94% / 78% / 64% for 10-19 / 20-49 / 50+ tweets): the share favours light users.
+  Replaced by the absolute count the same day.
+- **Status:** decided 2026-11-12 (see Result)
+- **Check (no ground truth, so consistency):** (a) temporal split: detect on 2013-2015 and 2016-2017 separately;
+  share of users with the same cell, by tier (should rise from low to high); (b) nesting: res 10 home lies inside the
+  res 8 home; (c) window: same cell under 20-08 and 22-07 (V4). Tiers are tuned so `high` is stable on (a). Planned
+  in `05_diagnostics.sql`.
+- **Result (2026-11-12):** settled. Week split (05 V8): same cell 88-91% overall, 92-94% with >= 5 nights, 95-97%
+  with >= 10; `high` more stable than `medium` across periods in every city (05 V3). 10 / 3 / 5 kept.
+
+## D17. Final home table
+- **Table:** `revised.home_final` (`06_home_final.sql`), one row per (city, user_id, res), res 10 and 9. Method
+  `nights`, window 20-08, D05 gate, D16 tiers.
+- **Res:** both kept. Week-split reliability differs by ~1 point (05 V8) and res 10 sits inside res 9 for 99% of
+  users (05 V4), so res 10 is as good as 9.
+- **Kept alongside:** night-tweet counts in the home cell and for the user, and the home under the `night_tweets`
+  ranking (`cell_night_tweets`) for sensitivity.
+- **Flags, nothing dropped:** `moved` (gated 2013-15 and 2016-17 homes >= 1 km apart, 05 V7/V8; null where not
+  testable, ~95% of homes: only 4-6% have a gated home in both periods), `multi_city` (homes in > 1 city), `suspect_bot` (homes in all three cities, 05 V5; the
+  20+ tweets per day group of 05 V6 is not flagged).
+- **Ids:** raw user_id, no pseudonymisation: the data stay on the secured server.
+- **Status:** decided 2026-11-12.
 
 ---
 
 ## Open questions waiting for check results
 | Check | Decides | Result |
 |---|---|---|
-| C02 | h3 available on v2? | |
-| C03 | `created_at` type (D03) | |
-| C05 | unit of `place.err` (D07) | |
-| C07 | `tweet_id` unique across cities? (D13) | |
-| C08 | users in more than one city (D09) | |
-| C09 | tweet types in window (D11) | |
+| C02 | h3 available on v2? | Installed in schema `public`: h3 ("unreleased" build), h3_postgis 4.2.3, postgis 3.6.2; call as `public.h3_...`. Smoke test OK: cell_10 = 8a1969c9b277fff, parent_9 = direct_9 = 891969c9b27ffff. Notice: `h3_lat_lng_to_cell` to be renamed `h3_latlng_to_cell` in next major h3 release; `public.h3_latlng_to_cell` already exists and gives the same cell, so the pipeline uses the new name. 2026-11-07 |
+| C03 | `created_at` type (D03) | `revised.tweet.created_at` is `timestamp without time zone` (UTC by convention); 2026-11-07 |
+| C05 | unit of `place.err` (D07) | Metres (Portland city 17.8 km, London admin 36.9 km). All 32,114 POIs have err = 0 (point places); only 12 neighborhoods and 3 cities pass err < 200, the 3 cities (and some neighborhoods) with err = 0 look like broken bboxes. So `err < 200` = POIs + 15 others. 2026-11-07 |
+| C06 | input size, gps vs place (D04, D05, D07) | 2013-2017 in bbox: amsterdam gps 3,191,990 tweets / 238,514 users, place 40; london gps 35,960,332 / 963,010, place 0; portland gps 4,528,967 / 112,710, place_poi 57,282 / 19,153, place_other 20. Ran in ~4 min. 2026-11-07 |
+| C07 | `tweet_id` unique across cities? (D13) | Yes: 0 tweet_ids appear in more than one city. 2026-11-07 |
+| C08 | users in more than one city (D09) | 1% user sample (`user_id % 100 = 0`), all years: 34,378 users, 2,415 (7.0%) in more than one city (collection label). 2026-11-07 |
+| C09 | tweet types in window (D11) | 2013-2017, n / with gps: original 65,736,952 / 33,825,375; reply 33,332,386 / 12,893,486; quote 3,584,424 / 47,838; retweet 69,269 / 33,119. Total gps 46.8M, of which 43.7M inside the bboxes (C06). 2026-11-07 |
+| 01 | `home_input` built (D03, D04, D07, D08, D11) | tweets / users: amsterdam 3,185,653 / 238,484; london 35,945,546 / 962,934; portland 4,527,650 / 112,699 (vs C06: -0.2% / -0.04% / -0.03% tweets, retweets and label mismatches). cell_10 never null. Users with >= 20 tweets: 15,792 (6.6%, 77% of tweets) / 184,705 (19.2%, 91%) / 16,036 (14.2%, 92%). 3.2 GB table + 1.4 GB PK. 2026-11-07 |
+| 02 | `home_user_cell` built | n_all and n_users identical at res 10/9/8 and equal to 01 in every city. Rows res 10/9/8: amsterdam 942,648 / 818,534 / 671,205; london 8,973,743 / 7,457,721 / 5,800,036; portland 884,660 / 695,922 / 530,134. Night share of gps tweets 20-08 / 22-07: ams 36.1 / 21.4%, lon 39.3 / 22.3%, pdx 38.5 / 23.8% (close to C10 for all tweets). 2.2 GB table + 1.3 GB PK. 2026-11-07 |
+| 03 (v1) | first `home_location`, ratio only, users >= 20 tweets (D10) | Build 1m46s. 20-08: homes res 10/9/8 ams 13,412 / 13,735 / 14,047; lon 164,458 / 167,008 / 169,973; pdx 14,049 / 14,322 / 14,602 = 85 / 89 / 88% of 20+ users at res 10. 22-07 res 10: 10,775 / 139,680 / 11,328. Res 10, 20-08: avg share of user tweets in home 0.235 / 0.212 / 0.191, of night tweets 0.374 / 0.328 / 0.315; avg ratio 0.79 / 0.81 / 0.81; single candidate 4,625 / 48,847 / 3,991; ratio tied with second 3,767 / 53,643 / 4,871. Led to D05 / D10 change, D15, D16. 2026-11-11 |
+| 03 (v2) V1 | coverage and tiers per method, 20-08 (D05, D10, D16) | S2b 3m 8s + PK 52s. `ratio` reproduces 03 (v1) exactly. `nights`: homes ams 127,636 / lon 614,104 / pdx 64,191 = 53.5 / 63.8 / 57.0% of users in home_input (the rest have no night tweet), same at every res; 20+ users with a home 15,320 / 181,737 / 15,712 = 97.0 / 98.4 / 98.0% (ratio: 85-89%). Tiers res 9 high / medium / low: ams 9,801 / 15,791 / 102,044; lon 112,868 / 101,523 / 399,713; pdx 8,340 / 9,618 / 46,233, so high + medium alone (25.6k / 214.4k / 18.0k) exceeds all ratio homes (13.7k / 167.0k / 14.3k). Ratio homes: only ~20% high. `night_tweets` aggregates within 1-2% of `nights`. avg shares not comparable across methods (nights includes 1-tweet users, share = 1). 2026-11-11 |
+| 03 (v3) V1 | gated: min_user_tweets 10, min_home_nights 3, strict lead (D05, D16), 20-08 | `ratio` unchanged. `nights` homes res 10 / 9 / 8: ams 10,102 / 10,872 / 12,073; lon 134,038 / 140,959 / 149,822; pdx 10,536 / 11,174 / 12,195 (now rises with coarser res: nights pool in larger cells). Res 9 = 79 / 84 / 78% of ratio's count; users with 10-19 tweets 22 / 14 / 12% of homes; 20+ users with a home 54 / 66 / 61% (ratio 87 / 90 / 89%: the difference is 20+ users with < 3 nights or a tie in their best cell). Tiers res 9: high 75 / 74 / 69% (ratio ~22%), low 0. Home holds on average 53 / 52 / 50% of the user's tweets and 69 / 67 / 63% of their nights (ratio: 26 / 24 / 22% and 42 / 35 / 34%). `night_tweets` 3-4% fewer homes, same profile. 2026-11-11 |
+| 03 (v3) V5 | homes by user activity, nights, 20-08, res 9 (D05, D16) | Users with a home by tweets in city: 10-19: ams 2,385 of 16,545 (14%), lon 19,038 of 99,803 (19%), pdx 1,379 of 9,790 (14%); 20-49: 37 / 45 / 39%; 50+: 78 / 84 / 81%. Users with < 10 tweets (ams 206k, lon 678k, pdx 87k) get none by design. Share `high` falls with activity: 10-19 ~94%, 20-49 ~78%, 50+ ~64%: the 50%-of-nights condition is easy for light users (3 of few nights) and hard for heavy users with many places, so tiers are not comparable across activity levels. Revisit D16 with the stability check by bucket (e.g. absolute night count instead of share). 2026-11-11 |
+| 03 (v4) V1 | tiers with `high` = >= 5 nights (D16) | Homes identical to v3. `nights` res 9 high / medium: ams 6,386 / 4,486 (59% high); lon 100,647 / 40,312 (71%); pdx 7,800 / 3,374 (70%). Ratio homes reaching `high`: 17 / 21 / 18%. V5 share `high` by tweets 10-19 / 20-49 / 50+: ams 24 / 47 / 84%, lon 28 / 56 / 89%, pdx 27 / 51 / 86%: now rises with activity, as it should. 2026-11-11 |
+| 03 (v4) V2 | method agreement, users with a home under all three methods, 20-08 (D10) | Users res 10 / 9 / 8: ams 7,627 / 8,123 / 8,818; lon 111,519 / 116,852 / 123,216; pdx 8,819 / 9,325 / 10,075. Same cell nights vs ratio: ams 42 / 44 / 47%, lon 38 / 40 / 42%, pdx 34 / 37 / 38%. Same cell nights vs night_tweets: 99.7-99.9% everywhere. The ratio home has on average 48-61% of the nights of the nights home. So for well-evidenced users the legacy method picks a different cell in 53-66% of cases, typically one with about half the night evidence; once gated, counting nights or night tweets makes no practical difference. 2026-11-11 |
+| 03 (v4) V3 | users with homes in more than one city, nights, 20-08 (D09) | Users with a home res 10 / 9 / 8: 154,089 / 162,324 / 173,215; in more than one city: 569 / 661 / 855 (0.37 / 0.41 / 0.49%); of those, primary home `high`: 422 / 506 / 643. C08's 7% multi-city users are almost all visitors with little evidence; with the D05 gate multi-city homes are negligible (movers within 2013-17, or bots; profile in 05). 2026-11-12 |
+| 03 (v4) V4 | same cell under 20-08 and 22-07, res 10 (D02) | Users with a home in both windows / share same cell: nights ams 6,545 / 96.3%, lon 98,173 / 97.0%, pdx 7,314 / 95.4%; night_tweets 97.3 / 97.9 / 96.6%; ratio 10,775 / 65.1%, 139,680 / 61.6%, 11,328 / 59.8%. The nights home barely depends on the window, the ratio home changes for ~40%. 22-07 gives homes to ~65-73% as many users as 20-08 (fewer nights pass the gate). 2026-11-12 |
+| 05 V1 | temporal stability 2013-15 vs 2016-17, nights, no gate (D05, D16) | Users with a night cell in both periods are few (lon ~61k of 141k homes; ams ~7.5k; pdx ~5.5k); most users' evidence sits in one period. Share with the same cell, by weaker-period nights 1 / 2 / 3-4 / 5-9 / 10+, res 10: ams 0.11 / 0.24 / 0.32 / 0.38 / 0.46; lon 0.04 / 0.12 / 0.19 / 0.26 / 0.38; pdx 0.08 / 0.18 / 0.30 / 0.39 / 0.50; res 9 a few points higher (lon 10+: 0.40). Rises steadily with evidence, no plateau; even 10+ nights only 38-52%. Gate (strict lead, >= 10 tweets) changes little. Open: real moves over a ~2.5-year gap vs. measurement noise -> V7 distance and an interleaved split. 2026-11-12 |
+| 05 V7 | distance between the 2013-15 and 2016-17 homes, gated pairs (>= 3 nights, strict lead, >= 10 tweets both) | Users res 10 / 9: ams 556 / 633, lon 5,681 / 6,212, pdx 675 / 723. Res 10 same / < 300 m / 300 m-1 km / 1-5 km / 5 km+: ams 0.37 / 0.09 / 0.10 / 0.30 / 0.15; lon 0.26 / 0.07 / 0.10 / 0.23 / 0.34; pdx 0.40 / 0.06 / 0.08 / 0.22 / 0.24. Res 9 same 0.42 / 0.28 / 0.43 (< 300 m is 0 by construction: res 9 neighbour centroids are ~300 m apart). About 3/4 of differing homes are >= 1 km apart, so V1's low stability is not jitter or cell borders, and coarser res barely helps: the method picks a different place, either a real move or a competing night place (partner, friends). Period split cannot separate the two -> S2c interleaved week split, V8. 2026-11-12 |
+| 05 V8 | reliability vs moves: period split next to interleaved week split (S2c, alternate Mon-Sun weeks), gated pairs as V7 | Week split users res 10 / 9: ams 3,814 / 4,105, lon 67,696 / 71,676, pdx 5,273 / 5,622. Week split same cell res 10: ams 0.90, lon 0.91, pdx 0.88 (res 9: 0.90 / 0.91 / 0.89); >= 1 km apart only 5-7%; with >= 5 nights in both halves 0.92-0.94, >= 10 nights 0.95-0.97. Period split 0.26-0.40 (V7). The method is reliable: given the same time span it finds the same cell ~9 times in 10, and the gate (3 nights) and `high` tier (5) sit where agreement is already ~90% / ~94%. The low period agreement is therefore mostly real change of night place over time (moves; also partners etc.), not measurement noise: about half of users observable in both periods change home by >= 1 km. Caveat: reliability is not validity; a place visited every week (partner) would be picked consistently too. Consequences: keep 10 / 3 / 5; the 2013-17 home is the dominant night place over the period; flag users whose period homes differ in the final table. Res 9 vs 10 differ by ~1 point, so res is a privacy choice. 2026-11-12 |
+| 05 V2 | period stability by activity (tweets in the weaker period), gated pairs with >= 3 nights | Same cell by tweets 01-09 / 10-19 / 20-49 / 50+, res 10: ams 0.59 / 0.52 / 0.41 / 0.31; lon 0.41 / 0.30 / 0.26 / 0.25; pdx 0.56 / 0.45 / 0.40 / 0.40 (res 9 similar, 1-6 points higher). Small cells for 01-09 (ams 29, lon 241, pdx 27). Period stability falls with activity: more tweets do not make the home more stable; heavy users have more places and more chances that another night place takes over. Evidence that matters is nights (V1, V8), not tweets, so no reason to raise min_user_tweets above 10. Period split mixes moves with reliability -> V2b on the week split. 2026-11-12 |
+| 05 V2b | V2 at res 10 with period and week split side by side | `share_period` reproduces V2. Week split same cell by tweets in the weaker half 01-09 / 10-19 / 20-49 / 50+: ams 0.98 / 0.92 / 0.90 / 0.90 (n 247 / 587 / 1,192 / 2,035); lon 0.95 / 0.93 / 0.90 / 0.90 (2,689 / 8,144 / 19,532 / 40,020); pdx 0.93 / 0.91 / 0.88 / 0.88 (192 / 549 / 1,419 / 3,305). Reliability is high at every activity level and drops only ~5 points from light to heavy users; the steep fall in V2 is change over time (heavy users move / switch night places more), not method noise. min_user_tweets = 10 is not needed for reliability (3 nights + strict lead carry it); kept as a sample choice. 2026-11-12 |
+| 05 V3 | period stability by tier of the full-period home, and full home = 2016-17 home (nights, 20-08) | Homes with a period home in both periods (ungated period homes, so shares sit below V7): high / medium res 10 ams 1,611 of 5,940 / 894 of 4,162; lon 18,963 of 95,411 / 7,122 of 38,627; pdx 1,802 of 7,375 / 651 of 3,161 (~20-27%). Same cell across periods, high vs medium, res 10: ams 0.29 vs 0.24, lon 0.16 vs 0.10, pdx 0.26 vs 0.17 (res 9 2-4 points higher). Full home = 2016-17 home: high 0.46-0.60, medium 0.60-0.74 (res 10; medium users have few nights, often mostly in one period, so the full home is that period's home). `high` is more stable than `medium` in every city: tiers order as intended. The full-period home is not simply the latest home; it is the dominant night place over 2013-17 (V8). Only ~1/4 of homes can be checked for a move (night evidence in both periods), so a `moved` flag will be missing for most users. 2026-11-12 |
+| 05 V4 | nesting: res 10 home inside the res 9 / res 8 home (nights, 20-08) | Users with a home at all three res: ams 9,708, lon 129,976, pdx 10,140. Res 10 home inside res 9 home 0.991 / 0.990 / 0.988, inside res 8 home 0.981 / 0.982 / 0.973. Homes are consistent across resolutions; picking a res does not pick a different place. 2026-11-12 |
+| 05 V5 | users with homes in more than one city (nights, 20-08, res 9) | 661 users (matches 03 V3): ams + lon 554 (148 all `high`, median 159 tweets / 29 nights), lon + pdx 64 (19), ams + pdx 23 (7), all three 20 (14; median 506 tweets / 158 nights). Multi-city users are heavy users with real night evidence in each city: movers, commuters, expats, plus some automated accounts. Three-city homes with 150+ nights are implausible for a person -> suspect bots. Homes stay per (city, user): flag `n_home_cities > 1`, flag 3-city users as suspect, do not drop. 2026-11-12 |
+| 05 V6 | tweets per active day of users with a home, nights, 20-08, res 9 (bots) | Homes by tweets/day 0-2 / 2-5 / 5-20 / 20+: ams 6,314 / 3,222 / 1,175 / 161; lon 75,375 / 49,084 / 15,075 / 1,425; pdx 6,579 / 3,407 / 1,077 / 111 (totals match 03). 20+ is 1.0-1.5% of homes, 5-20 ~10%. Heavier users have more concentrated homes: avg share of user tweets in the home cell rises from 0.46-0.49 (0-2) to 0.67-0.75 (20+), and more of them are `high` (lon 68% -> 80%, pdx 66% -> 83%). 20+ fits stationary automated accounts (feeds, cross-posting) as well as very heavy home tweeters. Small group: flag, don't drop. 2026-11-12 |
+| 06 V1 | `home_final` contents per city and res (D17) | 317,681 rows = 03 `nights` 20-08 homes res 10 + 9. Res 10 / 9 homes: ams 10,102 / 10,872, lon 134,038 / 140,959, pdx 10,536 / 11,174; high 5,940 / 6,386, 95,411 / 100,647, 7,375 / 7,800. Same cell as `night_tweets` 0.998-0.999. `moved` known for only ams 529 / 598, lon 5,346 / 5,887, pdx 642 / 686 (4-6% of homes; not ~1/4 as estimated from V3, which used ungated period homes); moved share 0.43 / 0.42, 0.57 / 0.55, 0.44 / 0.45 (matches V7). multi_city rows res 9 597 / 638 / 107 (matches V5), suspect_bot 20 per city at res 9, 19 at res 10. 2026-11-12 |
+| C10 | hour-of-day profile, local vs UTC (D02, D03) | All tweets 2013-2017 by local hour. All three cities: low at 04-05h, peak at 20-21h. Share of tweets in window 20-08: ams 38.2%, lon 37.4%, pdx 36.2%; 22-07: 22.6 / 21.1 / 21.2%; 00-06: 9.4 / 8.4 / 9.4%. Legacy UTC 20-08 is ~12:00-00:00 local in Portland (69% of its tweets). 2026-11-07 |
 
 ## Change log
 | Date | Change | Evidence |
 |---|---|---|
+| 2026-11-11 | 03: D16 `high` = >= 5 nights; dropped the 50%-of-nights condition | 03 (v3) V5 |
+| 2026-11-11 | 03: added `min_user_tweets` = 10 on top of the night gate (3 tweets on 3 nights must not make a home) | user review |
+| 2026-11-11 | 03: gate `min_home_nights` = 3 plus strict lead for nights / night_tweets (no gate gave 1-night homes) | D05 evidence |
+| 2026-11-11 | 03 rewritten: methods nights / night_tweets / ratio, distinct nights, no user minimum, confidence tiers; new tables `home_user_cell_nights`, `home_user` | 03 (v1) row in check table |
+| 2026-11-07 | Target switched to schema `revised` (same columns as `public` plus 5 provenance/repair columns: conversation_id_status, conversation_id_candidate, source_file_id, source_record, source_fragments; more users) | `select * from revised.tweet limit 100` |
 | 2026-10-08 | Initial skeleton from review of `TWITTER_FINAL.ipynb` and `home_location_inference_tables.ipynb` | n/a |
