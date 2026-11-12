@@ -49,3 +49,12 @@ The scripts run in the order listed above. The pipeline stops if a step fails.
 - `n_cleaned_words` counts whitespace-separated tokens in the cleaned text, including `URL` and `@USER` placeholders.
 - The notebook reports both raw and cleaned text statistics. The cleaned-text sections require Step 4. A 500-word window is distinct from the embedding model’s 128-transformer-token limit; actual token lengths can be checked in the optional tokenizer diagnostic.
 
+## Key findings from the edge-thread corpus notebook
+
+- **Coverage:** The corpus contains **39.95 million user-pair connections (edges)** and **89.84 million links between user pairs and conversation threads**, which together contain **241.90 million tweets**. These are sums across edges: the same thread and its tweets can be counted for multiple user pairs.
+- **Most edges are linked to few conversations:** **74.8%** of edges are associated with just **one thread**, and **25.2%** with more than one. Only **1.0%** are linked to **21 or more threads**.
+- **Text is often short:** Average cleaned text length is **150.5 words per edge**, but the distribution is highly skewed. **80.3%** of edges have at least **10 cleaned words**, **53.0%** at least **20**, **23.7%** at least **50**, and just **2.3%** at least **500**.
+- **Text is extremely concentrated:** The **top 1%** of edges by cleaned word count across all their associated threads account for **65.6%** of all edge-level cleaned words; the **top 5%** account for **78.0%**.
+- **More interactions generally mean more text, but they are not the same thing:** In a sample of up to 200,000 edges, the Spearman correlation is **0.87** between the number of direct interaction tweets between two users and the number of distinct threads associated with their interactions, and **0.63** between the number of direct interaction tweets and the total cleaned word count across their associated threads. The text also includes tweets by other users in those threads.
+- **Cleaning barely changes measured word counts:** Raw and cleaned edge-level word counts have a Spearman correlation of approximately **1.00**. This does **not** imply that cleaning leaves the actual text unchanged.
+- **Implications for topic modeling:** With a minimum of **10 cleaned words**, **32.08 million edges (80.3%)** are eligible. Limiting each eligible edge to **500 words** retains about **2.11 billion words**, or **35.5%** of the eligible corpus's cleaned-word total; very long edge texts account for much of the original text volume.
