@@ -1,137 +1,138 @@
-# Edge-level topic-modeling pipeline
+# User-user topic modeling: London Twitter interaction network
 
-This directory contains the cleaned, reproducible pipeline for the current **edge-document UMAP + MiniBatchKMeans model**. The directory structure is deliberately designed so that two planned extensions can be added without mixing outputs:
+## 1. Overview
 
-1. a **BERTopic** specification on the same edge documents;
-2. an **edge-thread document** specification, where one observation is one user-pair × conversation/thread and topic assignments are aggregated back to the user-user edge afterwards.
+This pipeline assigns one topic to each **undirected user-user edge** (if their threads comprise enought text). For each pair, the document combines the cleaned text of the conversation threads in which the two users interacted.
 
-## Permanent output root
+### Current configuration
 
-```text
-/mnt/common-hdd/group-dirs/twitter-2025-project/topic_models/edge_level/  
-```
+| Setting | Value |
+|---|---|
+| City | London |
+| Input PostgreSQL table | `interaction_edge_thread_corpus_london` |
+| Text column | `edge_thread_cleaned` |
+| Eligible documents | `edge_thread_cleaned IS NOT NULL AND n_cleaned_words >= 10` |
+| Embedding model | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` |
+| Embedding dimensions | 384 |
+| Maximum sequence length | 128 transformer tokens |
+| UMAP | 5 dimensions |
+| Clustering | MiniBatchKMeans |
+| Currently configured final K | `175` |
+| Currently configured final fit seed | `102345` |
 
-Recommended project tree:
-
-```text
-edge_level/
-├── edge/                              # current: one aggregated document per user-user edge
-│   ├── shared/                        # embeddings + UMAP representation shared by models
-│   ├── umap_kmeans/                   # current UMAP + MiniBatchKMeans model
-│   │   ├── k_selection/
-│   │   └── final_model/
-│   ├── bertopic/                      # reserved: BERTopic on the same edge documents
-│   └── taxonomy/                      # fine-topic labels + coarser substantive categories
-│
-└── edge_thread/                       # future: one edge × thread/conversation per observation
-    ├── shared/                        # edge-thread embeddings + dimensional representation
-    ├── umap_kmeans/                   # optional KMeans version on edge-thread documents
-    ├── bertopic/                      # BERTopic on edge-thread documents
-    └── aggregation/                   # thread-topic assignments/shares aggregated to edges
-```
-
-The current package writes only under `edge/`. The future `edge_thread/` branch should be a separate pipeline/configuration because its SQL source, row identifiers and number of observations will differ.
-
-## Current document definition
-
-The current observation is an undirected user-user **edge document**. All qualifying corrected conversation/thread text linked to the edge is aggregated before embedding. Eligible documents satisfy `n_cleaned_words >= 10`.
-
-SQL rows are read in deterministic order:
+Outputs are saved under `/mnt/common-hdd/group-dirs/twitter-2025-project/topic_models/edge_level/`:
 
 ```text
-city, user_id1, user_id2
+edge/
+├── shared/                 # embeddings and UMAP
+├── umap_kmeans/
+│   ├── k_selection/        # K/seed fits and validation results
+│   └── final_model/        # final fit, topic assignments and diagnostics
+├── bertopic/               # reserved for later comparison
+└── taxonomy/               # manually coded topic taxonomy
 ```
 
-This ordering is an invariant: row `i` must refer to the same edge in the embedding, UMAP and topic-assignment arrays.
+## 2. Conceptual unit: what is a document?
 
-## Current pipeline
+Each document corresponds to one **undirected user-user edge**. For each unordered pair `(user_id1, user_id2)`, the upstream corpus construction:
 
-1. `01_generate_embeddings.py` — full-corpus multilingual MiniLM embeddings.
-2. `02_train_umap_5m.py` — fit UMAP on a deterministic 5M sample.
-3. `03_transform_full_corpus_umap.py` — transform all eligible edge documents to 5D.
-4. `04_select_k_multiseed.py` — reproducible multi-K, multi-seed validation.
-5. `05_finalize_selected_model.py` — finalize the **manually specified** K and fit seed.
-6. `06_final_confidence.py` — topic-specific robust centroid-distance diagnostics.
-7. `07_final_topic_representation.py` — full-corpus c-TF-IDF representation and random examples.
-8. `08_final_semantic_examples.py` — core, typical and peripheral examples for every final topic.
+1. Identifies observed interactions between the users, regardless of direction.
+2. Links these interactions to Twitter conversations.
+3. Includes each conversation only once per pair.
+4. Uses the corrected conversation text, including reconstructed roots from retweets where available.
+5. Concatenates the linked conversations chronologically into one document.
 
-## Manual final-fit choice
+Repeated interactions within the same conversation do not duplicate its text. The document includes the full observed conversation text, not just the tweets that generated the interaction. This may include tweets from other participants.
 
-`04_select_k_multiseed.py` produces the numerical evidence used for K selection but does **not** determine the final model automatically.
+The assigned topic summarizes the main subject of the conversations linked to the pair. It does not necessarily describe either user's interests or everything the pair discussed.
 
-After inspecting the numerical and semantic validation, set in `pipeline_config.py`:
+## 3. Pipeline and execution
 
-```python
-FINAL_K = 175
-FINAL_FIT_SEED = 102345
+Run `bash run_topic_pipeline.sh` from the script directory. In the current Bash version, `START_STEP` and `END_STEP` are set near the top of the file. The first run should use `START_STEP=1` and `END_STEP=4`. After reviewing the K-selection results, set `FINAL_K` and `FINAL_FIT_SEED` in `pipeline_config.py`, then run step 05 (`START_STEP=5`, `END_STEP=5`). Steps 06–08 are for later topic validation. Step 09 updates the PostgreSQL table and should run only after topic validation and taxonomy coding are complete.
+
+| Stage | Script | Purpose and main output |
+|---|---|---|
+| 01 | `01_generate_embeddings.py` | Ordered full-corpus embeddings: `shared/embeddings_384d.npy` |
+| 02 | `02_train_umap_5m.py` | Deterministic 5M sample, fitted UMAP, training coordinates in `shared/` |
+| 03 | `03_transform_full_corpus_umap.py` | Full-corpus 5D UMAP: `shared/umap_5d.npy` |
+| 04 | `04_select_k_multiseed.py` | K × seed models, fit results, matched silhouette evaluations in `umap_kmeans/k_selection/` |
+| 05 | `05_finalize_selected_model.py` | Manually selected fit, topic IDs and distances in `umap_kmeans/final_model/` |
+| 06 | `06_final_confidence.py` | Robust within-topic centroid-distance scores and low-confidence flags |
+| 07 | `07_final_topic_representation.py` | Full-corpus c-TF-IDF, characteristic terms, random examples |
+| 08 | `08_final_semantic_examples.py` | Core, typical and peripheral examples per topic |
+| 09 | `09_attach_edge_topics.py` | **Later only, after validation:** update existing PostgreSQL edge-corpus table with topics and taxonomy |
+
+The database is read in deterministic `ORDER BY city, user_id1, user_id2` order. Row `i` in the embedding, UMAP and topic arrays must always refer to the same edge. Rebuilding the source corpus invalidates prior caches unless the ordered eligible rows are demonstrably identical.
+
+## 4. Input data and modeling sample
+
+The pipeline starts from the preprocessed London user-user edge corpus in the PostgreSQL table `interaction_edge_thread_corpus_london`. Conversation reconstruction, edge aggregation and text cleaning are performed in the separate conversation/thread pipeline and documented there. This topic-modeling pipeline does not rebuild those tables.
+
+Each row represents an undirected user pair. The text used for modeling is `edge_thread_cleaned`, which combines the cleaned texts of the conversations linked to that pair. These conversations may also contain tweets from other participants.
+
+Only rows satisfying the following condition are included:
+
+```sql
+edge_thread_cleaned IS NOT NULL
+AND n_cleaned_words >= 10
 ```
 
-`05_finalize_selected_model.py` then uses exactly that already fitted model from `edge/umap_kmeans/k_selection/`.
 
-This separation is intentional: the final fit is an explicit research decision and is not silently changed by a selection rule.
+## 5. Embeddings
 
-## K selection
+`01_generate_embeddings.py` uses `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` with 384 dimensions, `max_seq_length = 128`, batch size 64, DB fetch size 10,000, and flushes every 100,000 documents. It writes `shared/embeddings_384d.npy`, `n_documents.txt`, `embedding_progress.json` while running, and `embedding_metadata.json` on completion. 
 
-The validation grid is:
+Long documents are truncated at 128 transformer tokens. Because edge texts concatenate conversation context chronologically, embeddings of long documents emphasize their beginning rather than the full observation period.
 
-```text
-K = 50, 75, 90, 100, 110, 120, 125, 150, 175, 200, 250
-```
+## 6. UMAP
 
-Each K is fitted with 10 initialization seeds. Silhouette is evaluated on 10 matched random samples of 100,000 observations. The same evaluation sample is used across models within a repetition, permitting matched comparisons. Inertia is retained as a diagnostic rather than treated as evidence for a forced elbow.
+`02_train_umap_5m.py` draws a deterministic sample of up to 5,000,000 rows without replacement (seed 12345), fits UMAP with `n_neighbors=15`, `n_components=5`, `min_dist=0.0`, `metric='cosine'`, `low_memory=True`, and saves the model, sample indices, training coordinates and metadata under `shared/`. `03_transform_full_corpus_umap.py` then transforms all eligible embeddings in restartable chunks of 50,000, writing `shared/umap_5d.npy` and progress/metadata files. Both steps may require substantial memory and compute.
 
-The current evidence supports **K=175** as the fine-grained solution. The final choice should remain documented together with the numerical and semantic validation rather than being hard-coded as an automatic consequence of one metric.
+## 7. K selection and final fit
 
-## Interpretation and coarser taxonomy
+The grid in the uploaded configuration is `K_VALUES = [50, 75, 90, 100, 110, 120, 125, 150, 175, 200, 250]`, with 10 fit seeds per K. `04_select_k_multiseed.py` fits full-corpus MiniBatchKMeans (`batch_size=10,000`, `n_init=10`, `max_iter=300`, `reassignment_ratio=0.01`). It computes silhouettes on 10 **matched** random samples of up to 100,000 observations, averaging within seed and then across seeds. Inertia is reported as a diagnostic, not an elbow-selection rule. The script records the highest-mean-silhouette K and a representative seed in `selected_model.json`, but **does not automatically determine the final research choice**.
 
-K=175 is intended as the fine-grained topic taxonomy. After semantic validation, the 175 topics will be labelled and regrouped into a substantively interpretable coarser taxonomy of approximately **20–50 categories**. K=125 and K=150 solutions can be used as auxiliary evidence for grouping, but they do not constrain the final grouping. These edge-level taxonomy files belong under `edge/taxonomy/`; no aggregation step is needed because one observation is already one user-user edge.
+The K grid can be extended in `pipeline_config.py` while preserving existing candidates and matched samples. Add finer values around plausible solutions after inspecting the initial grid, rather than dropping the broad comparison or changing the evaluation protocol mid-comparison.
 
-The eventual edge-level output should preserve both levels, for example:
+After inspection, set `FINAL_K` and `FINAL_FIT_SEED` manually. `05_finalize_selected_model.py` reuses the selected fitted model (it does not refit), saves `topics_k{K}.npy`, `assigned_centroid_distance_k{K}.npy`, `topic_sizes_k{K}.csv`, and `final_model_metadata.json` under `umap_kmeans/final_model/`. It can reuse migrated labels; this is safe only if their model and source-corpus provenance match the new run. Centroid distance is **not** a probability that a topic is correct.
 
-```text
-topic_fine_id
-topic_fine_label
-topic_crude_id
-topic_crude_label
-```
+## 8. Topic interpretation and validation
 
-## Planned BERTopic comparison
+`06_final_confidence.py` computes topic-specific median and MAD of assigned-centroid distance, a robust z-score and a global high-distance flag (configured quantile 0.85). `07_final_topic_representation.py` estimates a vocabulary from up to 5,000 examples per topic and computes full-corpus c-TF-IDF using unigrams/bigrams, up to 100,000 features; it also saves random document examples. `08_final_semantic_examples.py` selects five examples per topic near the 10th, 50th and 90th within-topic distance quantiles (core, typical, periphery).
 
-A BERTopic version will be run on the same edge-document corpus. Its outputs belong under:
 
-```text
-edge/bertopic/
-```
+## 9. Taxonomy and later SQL write-back
 
-Where technically appropriate, preprocessing/embedding settings should be shared or explicitly matched so that the comparison is interpretable. Model-specific outputs must not be written into `edge/shared/`.
+The current configuration expects a human-coded mapping at `edge/taxonomy/k175_final_taxonomy_mapping.csv`, with one row for each topic 0–174. This mapping is an **input required by stage 09**, not generated by the modeling scripts. Topic validation and taxonomy coding must be completed first.
 
-## Planned edge-thread specification
+`09_attach_edge_topics.py` is intentionally deferred. It updates **the existing** `interaction_edge_thread_corpus_london` PostgreSQL table directly.
 
-A later specification will change the unit of observation from one aggregated edge document to one **edge × thread/conversation document**. It belongs under:
+## 10. What the topics mean
 
-```text
-edge_thread/
-```
+A topic groups edge documents with similar text. Each eligible pair receives one KMeans topic assignment, based on the combined text of its linked conversations.
 
-Each thread-level observation will receive topic information first. These assignments will then be aggregated to the user-user edge, allowing LDA-like mixed membership at edge level, such as:
+This assignment should not be treated as an individual user's interest, evidence that every conversation between the pair concerned the same subject, or a description of their communication over time. The model uses one document per pair for the entire observation period, so it cannot capture changes in topics within a pair.
 
-- dominant topic;
-- topic shares across conversations;
-- topic diversity/entropy;
-- shares in the coarser 20–50 substantive categories.
+## 11. Important interpretation caveats
 
-The aggregation products belong under:
+### Text from other participants
 
-```text
-edge_thread/aggregation/
-```
+Linked conversations can contain tweets by users other than the two endpoints. The topic is based on the text of these conversations, not only the pair's own tweets.
 
-This keeps three conceptually different objects separate: the fine thread-level topic assignment, the aggregated edge-level topic composition, and the current single-document-per-edge model.
+### Unequal text volume
 
-## Important embedding limitation
+Most edge documents are short, while a small share contain much more text.
 
-The current sentence-transformer uses `max_seq_length = 128`. Long aggregated edge documents are therefore truncated at the embedding stage. Because the current edge corpus is chronologically concatenated, long-document embeddings disproportionately reflect earlier text. The planned edge-thread specification should reduce this problem because its documents are substantially shorter.
+### Transformer truncation
 
-## Final SQL step
+The embedding model processes at most 128 transformer tokens per document. Since conversations are concatenated chronologically, long documents are represented mainly by their beginning.
 
-After the fine K=175 labels and the coarser taxonomy are frozen, a separate export/write-back stage should attach the final topic variables to the SQL corpus using the same deterministic row order and explicit row-count/order checks. The SQL write-back should be implemented only after the taxonomy is frozen, so model construction and substantive labelling remain separate reproducible stages.
+### One topic per edge
+
+KMeans assigns one topic to every eligible edge, even if the document covers several subjects or fits no cluster particularly well. There is no noise or outlier class. Centroid distances and core/typical/peripheral examples help assess these assignments, but distances are not probabilities.
+
+### Topic IDs
+
+Numeric topic IDs are arbitrary and have no substantive ordering.
+
+---
