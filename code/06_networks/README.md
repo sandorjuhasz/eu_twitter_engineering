@@ -351,3 +351,33 @@ Self-edges are excluded in both cases.
 Component IDs are assigned after sorting components by size, so ID 1 is the largest component. IDs of equally sized smaller components should not be treated as persistent identifiers across reruns.
 
 ---
+
+## 9. About the networks and their structure
+
+### Network size and structure
+
+- The network is huge: around **10.4 million users**, **40 million connections**, and **117 million interactions**. But most connections are weak: about **two-thirds** involve only a single interaction.
+- The average connection involves around **3 interactions**, but this is likely driven by a relatively small number of more active user pairs. For most users, interaction ties are much weaker.
+- The directed and undirected networks have almost the same number of edges (**40.5 vs. 40.0 million**). This already suggests that relatively few user pairs interact in both directions.
+
+### Reciprocity and interaction patterns
+
+- Only **2.3%** of directed connections are reciprocated. Most interactions are therefore one-sided: one user replies to or mentions another without an observed interaction in the opposite direction.
+- Mentions dominate the network. Around **53%** of interactions are mentions only, **12%** are replies only, and **35%** are both (a reply that also mentions the recipient).
+- This may suggest two things: 1) The network captures a broad range of interactions, but not necessarily strong social relationships, since mentioning someone does not mean that the two users communicate regularly. 2) This could also be partly an artifact of data, since only users with sufficiently many geolocated tweets were included in the dataset (so we may not observe their interaction partners' tweets if those users do not meet this criterion).
+
+### Connectivity
+
+- The undirected network is remarkably well connected: **97.2%** of users belong to a single giant component. Almost everyone is connected to everyone else through some chain of interactions when direction is ignored.
+- However, the directed network looks very different. Only **5.5%** of users belong to the largest strongly connected component, where users can reach one another through directed interaction paths.
+- So the network is highly connected in a structural sense, but much less interconnected when we account for the direction of interactions.
+
+### What does this mean for our analysis?
+
+- A connection is not necessarily a meaningful social tie. Most edges represent a single interaction, and reciprocity is extremely low. We should  be **extreamly** careful  interpreting the network as a social or friendship network.
+- The giant component is not necessarily evidence of a cohesive community. Although **97%** of users are connected, this can happen through long chains of weak, one-sided interactions.
+
+Overall: The London Twitter network is extremely large and structurally connected, but its connections are predominantly weak and one-sided. However, this may partly the result of the data gathering approach. Nevertheless, we have to keep in mind this important limitation: we cannot reliably distinguish genuinely one-sided interactions from missing reciprocal interactions. Therefore, analyses that rely on network structure, particularly reciprocity and connectivity, should be interpreted with caution.
+
+---
+
