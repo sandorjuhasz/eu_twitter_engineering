@@ -9,9 +9,14 @@
 -- (D20). Home cell, income etc. come by join on (city, user_id) to
 -- revised.home_final; res 9 via public.h3_cell_to_parent(cell_10, 9).
 --
+-- S3 adds revised.visit_user: per-user activity measures and the
+-- `automated` flag (>= 10 visits per visit day on average; V4
+-- calibrates it). Bots are flagged, not dropped.
+--
 -- Needs 07 S2a + S2b.
 -- Small input (visit_stay): expect a few minutes.
--- Drops and recreates revised.visit. Nothing else is touched.
+-- Drops and recreates revised.visit (S2) and revised.visit_user (S3).
+-- Nothing else is touched.
 -- ============================================================
 
 
@@ -186,3 +191,89 @@ from (
 ) u
 group by city
 order by city;
+
+
+-- ------------------------------------------------------------
+-- V4  Calibrate the automated-account flag (S3): users by average
+--     visits per visit day (distinct cells outside home / work per
+--     day they visit anything), and the share of all visits they
+--     hold. People average ~1-2; V3's top accounts 100-600.
+-- ------------------------------------------------------------
+with u as (
+    select city
+         , user_id
+         , count(*)::numeric / count(distinct local_date)   as visits_per_day
+         , count(*)                                         as n_visits
+    from revised.visit
+    group by city, user_id
+)
+select city
+     , k                                                    as min_visits_per_day
+     , count(*) filter (where visits_per_day >= k)          as n_users
+     , round(sum(n_visits) filter (where visits_per_day >= k)::numeric
+             / sum(n_visits), 3)                            as share_of_visits
+from u
+cross join (values (3), (5), (10), (20), (50)) v(k)
+group by city, k
+order by city, k;
+
+
+-- ------------------------------------------------------------
+-- S3  revised.visit_user: one row per (city, user_id) in visit_stay,
+--     activity measures for normalising (08 V2) and the automated
+--     flag: average visits per visit day >= max_visits_per_day.
+--     Flag, don't drop. Small: a minute or two.
+-- ------------------------------------------------------------
+set role twitter_project;
+
+drop table if exists revised.visit_user;
+
+create table revised.visit_user as
+with params(max_visits_per_day) as (
+    values (10)
+)
+, active as (
+    select city, user_id, count(distinct local_date) as d_active
+    from revised.visit_stay
+    group by city, user_id
+)
+, vis as (
+    select city
+         , user_id
+         , count(*)                                         as n_visits
+         , count(distinct cell_10)                          as n_cells
+         , count(distinct local_date)                       as d_visit
+         , percentile_cont(0.5) within group (order by dist_home_m) as median_dist_m
+    from revised.visit
+    group by city, user_id
+)
+select a.city
+     , a.user_id
+     , a.d_active
+     , coalesce(v.d_visit, 0)                               as d_visit
+     , coalesce(v.n_visits, 0)                              as n_visits
+     , coalesce(v.n_cells, 0)                               as n_cells
+     , round((10.0 * coalesce(v.n_cells, 0) / a.d_active)::numeric, 2) as cells_per_10_days
+     , round(v.median_dist_m)::integer                      as median_dist_m
+     , coalesce(v.n_visits::numeric / v.d_visit
+                >= (select max_visits_per_day from params), false) as automated
+from active a
+left join vis v
+  on v.city = a.city
+ and v.user_id = a.user_id;
+
+alter table revised.visit_user add primary key (city, user_id);
+
+reset role;
+
+analyze revised.visit_user;
+
+-- S3 check: flagged users and the share of visits they hold
+select u.city
+     , count(*)                                             as n_users
+     , count(*) filter (where u.automated)                  as n_automated
+     , sum(u.n_visits) filter (where u.automated)           as n_visits_automated
+     , round(sum(u.n_visits) filter (where u.automated)::numeric / sum(u.n_visits), 3) as share_visits_automated
+from revised.visit_user u
+group by u.city
+order by u.city;
