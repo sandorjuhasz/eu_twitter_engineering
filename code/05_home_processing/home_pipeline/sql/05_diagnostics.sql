@@ -443,7 +443,9 @@ order by city, res desc, split;
 --     top 5 home cells per city, the most used exact coordinates
 --     inside the cell: one point shared by many users = a default /
 --     venue coordinate posted by an app, not a device GPS fix.
---     Scans home_input once (no index on cell_10): about a minute.
+--     Scans home_input and looks up every tweet of the top cells in
+--     revised.tweet (hotspots hold many tweets): 5-15 min. Optional:
+--     01 V3 lists the largest shared points much faster.
 -- ------------------------------------------------------------
 with top as (
     select city, cell, n_homes

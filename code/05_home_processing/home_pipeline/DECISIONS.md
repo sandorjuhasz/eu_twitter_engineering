@@ -225,7 +225,7 @@ Origin: the first version of these rules comes from the `_zi` code (`../zita_not
   res 8 home; (c) window: same cell under 20-08 and 22-07 (V4). Tiers are tuned so `high` is stable on (a). Planned
   in `05_diagnostics.sql`.
 - **Result (2026-11-12):** settled. Week split (05 V8): same cell 88-91% overall, 92-94% with >= 5 nights, 95-97%
-  with >= 10; `high` more stable than `medium` across periods in every city (05 V3). 10 / 3 / 5 kept.
+  with >= 10 (after D18, 2026-11-13: 89-93% / 92-95% / 96-97%); `high` more stable than `medium` across periods in every city (05 V3). 10 / 3 / 5 kept.
 
 ## D17. Final home table
 - **Table:** `revised.home_final` (`06_home_final.sql`), one row per (city, user_id, res), res 10 and 9. Method
@@ -235,7 +235,7 @@ Origin: the first version of these rules comes from the `_zi` code (`../zita_not
 - **Kept alongside:** night-tweet counts in the home cell and for the user, and the home under the `night_tweets`
   ranking (`cell_night_tweets`) for sensitivity.
 - **Flags, nothing dropped:** `moved` (gated 2013-15 and 2016-17 homes >= 1 km apart, 05 V7/V8; null where not
-  testable, ~95% of homes: only 4-6% have a gated home in both periods), `multi_city` (homes in > 1 city), `suspect_bot` (homes in all three cities, 05 V5; the
+  testable, ~95% of homes: only 3-6% have a gated home in both periods), `multi_city` (homes in > 1 city), `suspect_bot` (homes in all three cities, 05 V5; the
   20+ tweets per day group of 05 V6 is not flagged).
 - **Ids:** raw user_id, no pseudonymisation: the data stay on the secured server.
 - **Status:** decided 2026-11-12.
@@ -251,6 +251,21 @@ Origin: the first version of these rules comes from the `_zi` code (`../zita_not
   points are often venues, useful for the third-place step.
 - **Check:** 01 V3 (points and tweets removed at 5 / 10 / 20 / 50 / 100 / 200 / 500 users, largest points); 05 V9 before the
   rebuild (top cells and their most used points); hotspots gone in home_overview after the rebuild.
+- **Result (2026-11-12):** 01 rebuilt with 100: tweets ams 3,185,653 -> 2,772,313 (-13%), lon 35,945,546 ->
+  32,695,037 (-9%), pdx 4,527,650 -> 4,259,157 (-6%); users 238,484 -> 181,300 (-24%), 962,934 -> 823,414 (-14%),
+  112,699 -> 96,664 (-14%). The largest shared points are city / landmark default coordinates, not homes: London
+  51.507114, -0.127318 (Trafalgar Square / Charing Cross, the generic "London" point), Heathrow 51.471710, -0.468103,
+  Tower Bridge 51.505150, -0.075585; Amsterdam 52.373100, 4.892200 (Dam, the generic "Amsterdam" point), Schiphol
+  52.309238, 4.762187; Portland 45.520000, -122.682000 (the generic "Portland" point).
+- **Largest points (01 V3, users / tweets):** ams Dam 41,456 / 103,023, Schiphol 19,237 / 40,440 (+ a second
+  Schiphol point 3,914), two Amsterdam Centraal / centre points ~4,000 each; lon Trafalgar Square 75,534 / 416,277,
+  Heathrow 21,714, Tower Bridge 20,830, a second generic London point 20,561, Soho 16,508; pdx generic Portland point
+  13,485 / 63,005, three PDX airport points 6,062 / 2,084 / 1,937, downtown 1,703. Tens of thousands of users per
+  point: far above any plausible home, so 100 is a safe cut.
+- **Precision note:** `revised.tweet.lat/lon` are double precision but hold float32 values (e.g. 51.50711441040039
+  = float32 of 51.507114): the coordinates passed through a 32-bit float in the build. Resolution ~0.4 m (lat) to
+  ~0.6 m (Portland lon), so chance collisions of 100 users are impossible; the rule is unaffected. Flag to the
+  table build (Spark FloatType).
 - **Status:** proposed 2026-11-12. Threshold 100 (user: the hotspots hold 500+ homes even in Portland, so only
   points used by very many users are the problem; 10 would also cut ordinary venues); confirm with 01 V3.
 
@@ -287,6 +302,9 @@ Origin: the first version of these rules comes from the `_zi` code (`../zita_not
 | 05 V6 | tweets per active day of users with a home, nights, 20-08, res 9 (bots) | Homes by tweets/day 0-2 / 2-5 / 5-20 / 20+: ams 6,314 / 3,222 / 1,175 / 161; lon 75,375 / 49,084 / 15,075 / 1,425; pdx 6,579 / 3,407 / 1,077 / 111 (totals match 03). 20+ is 1.0-1.5% of homes, 5-20 ~10%. Heavier users have more concentrated homes: avg share of user tweets in the home cell rises from 0.46-0.49 (0-2) to 0.67-0.75 (20+), and more of them are `high` (lon 68% -> 80%, pdx 66% -> 83%). 20+ fits stationary automated accounts (feeds, cross-posting) as well as very heavy home tweeters. Small group: flag, don't drop. 2026-11-12 |
 | 06 V1 | `home_final` contents per city and res (D17) | 317,681 rows = 03 `nights` 20-08 homes res 10 + 9. Res 10 / 9 homes: ams 10,102 / 10,872, lon 134,038 / 140,959, pdx 10,536 / 11,174; high 5,940 / 6,386, 95,411 / 100,647, 7,375 / 7,800. Same cell as `night_tweets` 0.998-0.999. `moved` known for only ams 529 / 598, lon 5,346 / 5,887, pdx 642 / 686 (4-6% of homes; not ~1/4 as estimated from V3, which used ungated period homes); moved share 0.43 / 0.42, 0.57 / 0.55, 0.44 / 0.45 (matches V7). multi_city rows res 9 597 / 638 / 107 (matches V5), suspect_bot 20 per city at res 9, 19 at res 10. 2026-11-12 |
 | home_overview | first run of the overview notebook (maps, population) | Hotspots: one res 10 cell holds 1,132 of 10,102 Amsterdam homes (11%), 5,474 of 134,038 London (4%), 587 of 10,536 Portland (6%); also visible as outliers in the homes vs population scatter. Suspected default / venue coordinates shared by many users (app-generated points, not device GPS), which D07 does not catch. -> 05 V9 (top cells, most used exact points). Population (GHS-POP 2015): Spearman homes vs residents per cell, res 8 / 9 / 10: ams 0.82 / 0.71 / 0.46, lon 0.88 / 0.78 / 0.45, pdx 0.65 / 0.53 / 0.26; ~10-14 homes per 1,000 residents. Funnel res 9: users -> >= 10 tweets -> >= 3 nights -> home: ams 238,484 / 32,337 / 11,332 / 10,872; lon 962,934 / 284,508 / 145,895 / 140,959; pdx 112,699 / 25,826 / 11,642 / 11,174 (strict lead removes only ~4%). 2026-11-12 |
+| 03 (v5, D18) V1 | homes after dropping shared points (D18), 20-08 | `nights` homes res 10 / 9 / 8: ams 8,078 / 8,646 / 9,453; lon 124,193 / 130,174 / 137,040; pdx 9,521 / 10,087 / 10,845. Res 9 vs before D18 (10,872 / 140,959 / 11,174): -20% / -8% / -10%, more than the hotspot cells alone held at res 9 (1,274 / 5,797 / 673): also users who drop below 10 tweets or 3 nights once their shared-point tweets are gone. Remaining homes are stronger: `high` res 9 63 / 73 / 71% (was 59 / 71 / 70%); home holds 71 / 70 / 65% of the user's nights (was 69 / 67 / 63%). `night_tweets` 3-4% fewer homes, same profile. `ratio` res 9: 10,874 / 146,389 / 12,652. 2026-11-12 |
+| 05 V8 (v2, D18) | V8 rerun after dropping shared points (D18) | Users res 10 / 9: week split ams 3,390 / 3,640, lon 64,283 / 67,971, pdx 4,907 / 5,228; period split ams 330 / 382, lon 3,656 / 4,008, pdx 475 / 516 (period pairs -30 to -41% vs V7: shared points were common in 2016-17). Week split same cell res 10: ams 0.914, lon 0.916, pdx 0.889 (res 9: 0.922 / 0.927 / 0.902); >= 1 km apart 4-6%; >= 5 nights 0.92-0.95, >= 10 nights 0.96-0.97. All 1-2 points above v1. Period split same cell res 10: ams 0.36, lon 0.36, pdx 0.43 (v1 0.37 / 0.26 / 0.40); >= 1 km apart 0.40-0.45. London's period agreement rose by 10 points: part of the apparent moves were users whose home in one period was a shared point. Conclusions of V8 unchanged: method reliable (~9 in 10), period gap mostly real change. 2026-11-13 |
+| 06 V1 (v2, D18) | `home_final` rebuilt after D18 | 290,699 rows; homes res 10 / 9 match 03 (v5): ams 8,078 / 8,646, lon 124,193 / 130,174, pdx 9,521 / 10,087; high 5,104 / 5,455, 90,280 / 95,008, 6,793 / 7,181. Same cell as `night_tweets` 0.998-0.999. `moved` known for ams 317 / 362, lon 3,494 / 3,828, pdx 461 / 495 (3-5% of homes, was 4-6%); moved share 0.41 / 0.42, 0.44 / 0.43, 0.39 / 0.40 (London was 0.57 / 0.55: shared points inflated moves, cf. 05 V8 v2). multi_city rows res 9 317 / 350 / 67 (was 597 / 638 / 107, -45%): many multi-city homes were shared-point artefacts. suspect_bot 12 / 13 / 13 at both res (was 20 / 19): flag is per user at either res, so a user with three cities at only one res is flagged in all its rows, and city counts need not be equal. 2026-11-13 |
 | C10 | hour-of-day profile, local vs UTC (D02, D03) | All tweets 2013-2017 by local hour. All three cities: low at 04-05h, peak at 20-21h. Share of tweets in window 20-08: ams 38.2%, lon 37.4%, pdx 36.2%; 22-07: 22.6 / 21.1 / 21.2%; 00-06: 9.4 / 8.4 / 9.4%. Legacy UTC 20-08 is ~12:00-00:00 local in Portland (69% of its tweets). 2026-11-07 |
 
 ## Change log
