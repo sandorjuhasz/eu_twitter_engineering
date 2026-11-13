@@ -23,8 +23,8 @@
 --        else (no tiers, no res 9): most users get no work row, and
 --        that is fine.
 --
--- Run V0 first: it lists the largest shared points, from which the
--- generic_points list below was taken.
+-- V0 lists the largest shared points; the generic_points list in
+-- S2a was taken from it (2026-11-13).
 -- S2a reads revised.tweet once: about 10-30 min (psql in tmux).
 -- Drops and recreates revised.visit_stay, revised.visit_home_area and
 -- revised.work_final. Nothing else is touched.
@@ -65,11 +65,14 @@ drop table if exists revised.visit_stay;
 
 create table revised.visit_stay as
 with generic_points(city, lat, lon) as (
-    -- lat / lon are float32 values stored as double (D18 precision
-    -- note): compare after rounding to 6 decimals
-    values ('london',    51.507114,   -0.127318)
-         , ('amsterdam', 52.373100,    4.892200)
-         , ('portland',  45.520000, -122.682000)
+    -- city-level default coordinates from V0 (2026-11-13); venues,
+    -- landmarks, stations, airports and neighbourhood points (Soho,
+    -- Shoreditch) stay. lat / lon are float32 values stored as double
+    -- (D18 precision note): matched within 1e-5 degrees (~1 m)
+    values ('london',    51.507114,   -0.127318)    -- generic London
+         , ('london',    51.507198,   -0.127500)    -- generic London (Wikipedia)
+         , ('amsterdam', 52.373100,    4.892200)    -- generic Amsterdam
+         , ('portland',  45.520000, -122.682000)    -- generic Portland
 )
 , bbox(city, tz, lat_min, lat_max, lon_min, lon_max) as (
     values ('london',    'Europe/London',       51.2867601, 51.6918741,  -0.5103751,    0.3340155)
@@ -105,8 +108,8 @@ with generic_points(city, lat, lon) as (
           select 1
           from generic_points g
           where g.city = t.city
-            and round(t.lat::numeric, 6) = g.lat
-            and round(t.lon::numeric, 6) = g.lon
+            and abs(t.lat - g.lat) < 1e-5
+            and abs(t.lon - g.lon) < 1e-5
       )
 )
 select city

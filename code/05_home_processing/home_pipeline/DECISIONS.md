@@ -286,8 +286,11 @@ Origin: the first version of these rules comes from the `_zi` code (`../zita_not
   last local time, `max_point_users` kept. Only users with a home (`home_final`, any res).
 - **Input:** as `home_input` (D04, D07, D08, D11, D03) except D18: shared points are kept, since check-in venues
   are third-place visits; only generic city points (the city's default coordinate, no venue) are dropped:
-  London 51.507114, -0.127318, Amsterdam 52.373100, 4.892200, Portland 45.520000, -122.682000 (list to be
-  reviewed with 07 V0; airports, stations, landmarks stay).
+  London 51.507114, -0.127318 (75,534 users) and 51.507198, -0.127500 (20,561, the Wikipedia London point),
+  Amsterdam 52.373100, 4.892200 (41,456), Portland 45.520000, -122.682000 (13,485); matched within 1e-5 degrees
+  (float32 storage). Reviewed with 07 V0 (2026-11-13): the other top points are venues or areas and stay
+  (Schiphol, Amsterdam Centraal, Rijksmuseum, Heathrow, Tower Bridge, Trafalgar Square, Westminster, London Eye,
+  PDX airport; neighbourhood points Soho 16,508 and Shoreditch 7,868 also stay, flagged by `max_point_users`).
 - **Visit (`08_visits.sql`, `revised.visit`):** stays outside the home area (home cell + ring 1, ~200 m: GPS
   jitter at home) and outside the work cell (D19). With sparse Twitter activity every such stay is a potential
   third place; POI matching is done on top (student). Home and income join back on (city, user_id).
