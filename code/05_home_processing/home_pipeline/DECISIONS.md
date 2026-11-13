@@ -266,8 +266,34 @@ Origin: the first version of these rules comes from the `_zi` code (`../zita_not
   = float32 of 51.507114): the coordinates passed through a 32-bit float in the build. Resolution ~0.4 m (lat) to
   ~0.6 m (Portland lon), so chance collisions of 100 users are impossible; the rule is unaffected. Flag to the
   table build (Spark FloatType).
-- **Status:** proposed 2026-11-12. Threshold 100 (user: the hotspots hold 500+ homes even in Portland, so only
+- **Status:** decided 2026-11-13 (01 V3, 03 / 05 / 06 reruns, home_overview v2: hotspots gone). Threshold 100 (user: the hotspots hold 500+ homes even in Portland, so only
   points used by very many users are the problem; 10 would also cut ordinary venues); confirm with 01 V3.
+
+## D19. Work place (minimal label)
+- **Purpose:** only to keep work out of the third-place visits (D20), not an analysis target. People work in
+  many ways (shifts, several sites, no fixed place), so a label is set only where it is clear, and most users
+  get none.
+- **Rule (`07_work.sql`, `revised.work_final`):** res 10 only. Evidence = distinct Mon-Fri dates with a tweet at
+  09-16h local in the cell. Candidates exclude the home area (home res 10 cell + ring 1; res 9-only homes: the
+  7 res 10 children). Work = best cell with >= 3 such dates (`min_work_days`) and strictly more than the second
+  cell. No tiers, no res 9, no sensitivity runs.
+- **Input:** `revised.visit_stay` (D20), so shared points are kept: airports, stations, campuses can be work.
+- **Check:** 07 V1 only (share of home users with work, commute distance, top work cells).
+- **Status:** decided 2026-11-13 (user: keep it minimal).
+
+## D20. Visits (third-place candidates)
+- **Unit:** a stay = (city, user_id, local date, res 10 cell), `revised.visit_stay` (07 S2a); n_tweets, first /
+  last local time, `max_point_users` kept. Only users with a home (`home_final`, any res).
+- **Input:** as `home_input` (D04, D07, D08, D11, D03) except D18: shared points are kept, since check-in venues
+  are third-place visits; only generic city points (the city's default coordinate, no venue) are dropped:
+  London 51.507114, -0.127318, Amsterdam 52.373100, 4.892200, Portland 45.520000, -122.682000 (list to be
+  reviewed with 07 V0; airports, stations, landmarks stay).
+- **Visit (`08_visits.sql`, `revised.visit`):** stays outside the home area (home cell + ring 1, ~200 m: GPS
+  jitter at home) and outside the work cell (D19). With sparse Twitter activity every such stay is a potential
+  third place; POI matching is done on top (student). Home and income join back on (city, user_id).
+- **Caveat for analysis:** places visited grow with activity; per-user counts need normalising by active days
+  or a fixed subsample of days (08 V2 shows the size of the effect).
+- **Status:** decided 2026-11-13.
 
 ---
 
@@ -305,6 +331,7 @@ Origin: the first version of these rules comes from the `_zi` code (`../zita_not
 | 03 (v5, D18) V1 | homes after dropping shared points (D18), 20-08 | `nights` homes res 10 / 9 / 8: ams 8,078 / 8,646 / 9,453; lon 124,193 / 130,174 / 137,040; pdx 9,521 / 10,087 / 10,845. Res 9 vs before D18 (10,872 / 140,959 / 11,174): -20% / -8% / -10%, more than the hotspot cells alone held at res 9 (1,274 / 5,797 / 673): also users who drop below 10 tweets or 3 nights once their shared-point tweets are gone. Remaining homes are stronger: `high` res 9 63 / 73 / 71% (was 59 / 71 / 70%); home holds 71 / 70 / 65% of the user's nights (was 69 / 67 / 63%). `night_tweets` 3-4% fewer homes, same profile. `ratio` res 9: 10,874 / 146,389 / 12,652. 2026-11-12 |
 | 05 V8 (v2, D18) | V8 rerun after dropping shared points (D18) | Users res 10 / 9: week split ams 3,390 / 3,640, lon 64,283 / 67,971, pdx 4,907 / 5,228; period split ams 330 / 382, lon 3,656 / 4,008, pdx 475 / 516 (period pairs -30 to -41% vs V7: shared points were common in 2016-17). Week split same cell res 10: ams 0.914, lon 0.916, pdx 0.889 (res 9: 0.922 / 0.927 / 0.902); >= 1 km apart 4-6%; >= 5 nights 0.92-0.95, >= 10 nights 0.96-0.97. All 1-2 points above v1. Period split same cell res 10: ams 0.36, lon 0.36, pdx 0.43 (v1 0.37 / 0.26 / 0.40); >= 1 km apart 0.40-0.45. London's period agreement rose by 10 points: part of the apparent moves were users whose home in one period was a shared point. Conclusions of V8 unchanged: method reliable (~9 in 10), period gap mostly real change. 2026-11-13 |
 | 06 V1 (v2, D18) | `home_final` rebuilt after D18 | 290,699 rows; homes res 10 / 9 match 03 (v5): ams 8,078 / 8,646, lon 124,193 / 130,174, pdx 9,521 / 10,087; high 5,104 / 5,455, 90,280 / 95,008, 6,793 / 7,181. Same cell as `night_tweets` 0.998-0.999. `moved` known for ams 317 / 362, lon 3,494 / 3,828, pdx 461 / 495 (3-5% of homes, was 4-6%); moved share 0.41 / 0.42, 0.44 / 0.43, 0.39 / 0.40 (London was 0.57 / 0.55: shared points inflated moves, cf. 05 V8 v2). multi_city rows res 9 317 / 350 / 67 (was 597 / 638 / 107, -45%): many multi-city homes were shared-point artefacts. suspect_bot 12 / 13 / 13 at both res (was 20 / 19): flag is per user at either res, so a user with three cities at only one res is flagged in all its rows, and city counts need not be equal. 2026-11-13 |
+| home_overview (v2, D18) | overview notebook rerun after D18 | Hotspots gone: max homes in one res 10 cell ams 39, lon 93, pdx 85 (was 1,132 / 5,474 / 587); res 9 max 109 / 402 / 107. Funnel res 9 users -> >= 10 tweets -> >= 3 nights -> home -> high: ams 181,300 / 24,422 / 8,959 / 8,646 / 5,455; lon 823,414 / 241,992 / 133,861 / 130,174 / 95,008; pdx 96,664 / 22,346 / 10,476 / 10,087 / 7,181. Spearman homes vs population res 8 / 9 / 10: ams 0.82 / 0.71 / 0.46, lon 0.89 / 0.79 / 0.45, pdx 0.65 / 0.53 / 0.26 (unchanged: hotspots were few cells); homes per 1,000 residents res 9: 8.5 / 13.3 / 9.3. Median home nights 6 / 8 / 8, median user tweets (res 9) 48 / 64 / 73. 2026-11-13 |
 | C10 | hour-of-day profile, local vs UTC (D02, D03) | All tweets 2013-2017 by local hour. All three cities: low at 04-05h, peak at 20-21h. Share of tweets in window 20-08: ams 38.2%, lon 37.4%, pdx 36.2%; 22-07: 22.6 / 21.1 / 21.2%; 00-06: 9.4 / 8.4 / 9.4%. Legacy UTC 20-08 is ~12:00-00:00 local in Portland (69% of its tweets). 2026-11-07 |
 
 ## Change log
