@@ -148,3 +148,41 @@ left join places p
  and p.user_id = a.user_id
 group by 1, 2
 order by 1, 2;
+
+
+-- ------------------------------------------------------------
+-- V3  Heaviest visitors per city: Portland has ~3x more visits per
+--     user than the others. Automated accounts (job ads, traffic,
+--     weather) post from many places and would dominate counts.
+--     cells_per_day near 1+ every day over years = not a person.
+-- ------------------------------------------------------------
+select city, user_id, n_visits, n_cells, n_days, cells_per_day, tweets_per_visit, share_shared_point
+from (
+    select city
+         , user_id
+         , count(*)                                                     as n_visits
+         , count(distinct cell_10)                                      as n_cells
+         , count(distinct local_date)                                   as n_days
+         , round(count(distinct cell_10)::numeric / count(distinct local_date), 2) as cells_per_day
+         , round(avg(n_tweets), 2)                                      as tweets_per_visit
+         , round(avg((max_point_users is not null)::int)::numeric, 2)   as share_shared_point
+         , row_number() over (partition by city order by count(*) desc) as rk
+    from revised.visit
+    group by city, user_id
+) x
+where rk <= 10
+order by city, rk;
+
+-- Concentration: share of all visits made by the top 1% / 10% of users
+select city
+     , round(sum(n) filter (where pct <= 0.01) / sum(n), 3)             as share_top1pct
+     , round(sum(n) filter (where pct <= 0.10) / sum(n), 3)             as share_top10pct
+from (
+    select city
+         , count(*)::numeric                                            as n
+         , percent_rank() over (partition by city order by count(*) desc) as pct
+    from revised.visit
+    group by city, user_id
+) u
+group by city
+order by city;

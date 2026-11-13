@@ -9,9 +9,11 @@
 --        one row per (city, user_id, local_date, cell_10): a stay.
 --        Filters as 01 S2b (2013-17, gps, own-city bbox, original /
 --        reply / quote, local time) EXCEPT D18: shared points are KEPT
---        (check-in venues are third-place visits); only the generic
---        city points in `generic_points` are dropped (city default
---        coordinates, no place). max_point_users flags shared points.
+--        (check-in venues are third-place visits); only generic city
+--        points are dropped: shared points (>= 100 users) within ~30 m
+--        of a city default coordinate in `generic_points` (catches the
+--        variants different apps use). max_point_users flags shared
+--        points.
 -- S2b  revised.home_final -> revised.visit_home_area
 --        res 10 cells counted as home: the res 10 home cell and its
 --        ring 1 (~200 m, GPS jitter around home); users with only a
@@ -54,6 +56,21 @@ from (
 where rk <= 10
 order by city, rk;
 
+-- V0b Shared points that S2a drops (>= 100 users, ~30 m around a
+--     generic centre): should be the defaults and their variants only
+with generic_points(city, lat, lon) as (
+    values ('london', 51.507114, -0.127318), ('london', 51.507198, -0.127500)
+         , ('amsterdam', 52.373100, 4.892200), ('portland', 45.520000, -122.682000)
+)
+select distinct s.city, s.lat, s.lon, s.n_users, s.n_tweets
+from revised.home_shared_points s
+join generic_points g
+  on g.city = s.city
+ and abs(s.lat - g.lat) < 0.0003
+ and abs(s.lon - g.lon) < 0.0004
+where s.n_users >= 100
+order by s.city, s.n_users desc;
+
 
 -- ------------------------------------------------------------
 -- S2a  Build revised.visit_stay
@@ -67,12 +84,17 @@ create table revised.visit_stay as
 with generic_points(city, lat, lon) as (
     -- city-level default coordinates from V0 (2026-11-13); venues,
     -- landmarks, stations, airports and neighbourhood points (Soho,
-    -- Shoreditch) stay. lat / lon are float32 values stored as double
-    -- (D18 precision note): matched within 1e-5 degrees (~1 m)
+    -- Shoreditch) stay. Dropped: shared points (>= min_point_users)
+    -- within 0.0003 deg lat / 0.0004 deg lon (~30 m) of a centre, so
+    -- the variants of the same default (51.507195 / 51.507221 ...,
+    -- float32 storage) go too; private GPS fixes there stay.
     values ('london',    51.507114,   -0.127318)    -- generic London
          , ('london',    51.507198,   -0.127500)    -- generic London (Wikipedia)
          , ('amsterdam', 52.373100,    4.892200)    -- generic Amsterdam
          , ('portland',  45.520000, -122.682000)    -- generic Portland
+)
+, params(min_point_users, d_lat, d_lon) as (
+    values (100, 0.0003, 0.0004)
 )
 , bbox(city, tz, lat_min, lat_max, lon_min, lon_max) as (
     values ('london',    'Europe/London',       51.2867601, 51.6918741,  -0.5103751,    0.3340155)
@@ -104,12 +126,16 @@ with generic_points(city, lat, lon) as (
     where t.created_at >= timestamp '2013-01-01'
       and t.created_at <  timestamp '2018-01-01'
       and t.tweet_type in ('original', 'reply', 'quote')
-      and not exists (
-          select 1
-          from generic_points g
-          where g.city = t.city
-            and abs(t.lat - g.lat) < 1e-5
-            and abs(t.lon - g.lon) < 1e-5
+      and not (
+              coalesce(s.n_users, 0) >= (select min_point_users from params)
+          and exists (
+                  select 1
+                  from generic_points g
+                  cross join params p
+                  where g.city = t.city
+                    and abs(t.lat - g.lat) < p.d_lat
+                    and abs(t.lon - g.lon) < p.d_lon
+              )
       )
 )
 select city
@@ -263,3 +289,13 @@ from (
 ) x
 where rk <= 5
 order by city, rk;
+
+-- Generic points gone: the cells of the generic centres must show
+-- max_point_users below the generic counts (75,534 / 20,561 / 41,456 /
+-- 13,485); Soho (16,508) stays by design
+select city, cell_10::text, count(*) as n_stays, max(max_point_users) as max_point_users
+from revised.visit_stay
+where (city, cell_10) in (('portland',  '8a28f0004b67fff'::h3index),
+                          ('london',    '8a195da49b5ffff'::h3index),
+                          ('london',    '8a195da49847fff'::h3index))
+group by 1, 2;
