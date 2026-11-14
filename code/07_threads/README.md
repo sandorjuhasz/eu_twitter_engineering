@@ -8,8 +8,8 @@ This pipeline reconstructs observed Twitter conversations across all cities in t
 |---|---|---|
 | 1 | `01_create_conversation_table.py` | Reconstructs conversations and creates the shared `thread_table`. |
 | 2 | `02_calculate_thread_stats.py` | Exports conversation-level diagnostics by city. |
-| Analysis | `03_thread_descriptives.ipynb` | Visualizes and compares the exported statistics; run manually. |
-| Runner | `run_thread_pipeline.sh` | Executes steps 1–2 sequentially. |
+| 3 | `03_thread_descriptives.ipynb` | Visualizes and compares the exported statistics; executed and saved automatically. |
+| Runner | `run_thread_pipeline.sh` | Executes steps 1–3 sequentially and saves a timestamped log. |
 
 Run from `src/threads/`:
 
@@ -49,4 +49,4 @@ CSV outputs are saved under:
 | `singleton_composition.csv` | Root/reply/quote composition of singletons. |
 | `duration_distribution.csv` | Median, 90th and 99th percentiles of conversation duration. |
 
-All statistics are reported by city. The notebook reads these CSVs, displays distributions and supports cross-city comparisons using relative frequencies. It does not query PostgreSQL. Figures and executed notebooks are not automatically saved.
+All statistics are reported by city. The notebook reads these CSVs, displays distributions and supports cross-city comparisons using relative frequencies. It does not query PostgreSQL. The notebook is executed automatically using the `twitter-venv` Jupyter kernel and saved as `executed_notebooks/03_thread_descriptives_executed.ipynb`. Pipeline console output and errors are saved in timestamped files under `logs/`. Both directories are inside the thread statistics output directory. The notebook itself does not automatically export its figures as separate image files.

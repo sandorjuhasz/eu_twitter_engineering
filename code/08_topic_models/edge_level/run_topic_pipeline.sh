@@ -13,7 +13,7 @@ PYTHON="/home/ilyesvirag/twitter/venv/bin/python"
 
 # First and last stages to run (inclusive)
 # Available: 00a, 00b, 00c, 01, 02, 03, 04, 05, 06, 07, 08, 09
-START_STEP="00a"
+START_STEP="00c"
 END_STEP="04"
 
 # Stage 00a DROPS and recreates the London edge corpus.
