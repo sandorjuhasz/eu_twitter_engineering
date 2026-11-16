@@ -31,8 +31,6 @@ The input is the PostgreSQL `tweet` table, deduplicated by `(city, tweet_id)`. O
 
 The resulting `thread_table` contains observed tweet and user counts, conversation duration, root-observation and reconstruction indicators, `core_thread_text` and `corrected_thread_text`.
 
-**Interpretation:** Conversations represent observed Twitter data rather than necessarily complete conversations. Retweet-based root recovery provides an estimate of missing text, not an observed original tweet. Multiple tweets within a conversation may originate from a single user.
-
 ## Thread diagnostics
 
 CSV outputs are saved under:
@@ -49,4 +47,26 @@ CSV outputs are saved under:
 | `singleton_composition.csv` | Root/reply/quote composition of singletons. |
 | `duration_distribution.csv` | Median, 90th and 99th percentiles of conversation duration. |
 
-All statistics are reported by city. The notebook reads these CSVs, displays distributions and supports cross-city comparisons using relative frequencies. It does not query PostgreSQL. The notebook is executed automatically using the `twitter-venv` Jupyter kernel and saved as `executed_notebooks/03_thread_descriptives_executed.ipynb`. Pipeline console output and errors are saved in timestamped files under `logs/`. Both directories are inside the thread statistics output directory. The notebook itself does not automatically export its figures as separate image files.
+All statistics are reported by city. The notebook reads these CSVs, displays distributions and supports cross-city comparisons using relative frequencies.
+
+## Empirical summary
+
+**Source:** `02_calculate_thread_stats.py` pipeline log (`/thread_statistics/logs fodler`) and `03_thread_descriptives_executed.ipynb`. 
+
+We have **139.2 million observed conversations** across Amsterdam, London and Portland. These are conversations reconstructed from the available tweets, not necessarily complete Twitter threads. The following table combines the pipeline log's conversation and root-reconstruction counts with the notebook's cross-city comparisons.
+
+| Measure | Amsterdam | London | Portland |
+|---|---:|---:|---:|
+| Observed tweets | 20,936,901 | 129,941,246 | 16,022,182 |
+| Conversations | 17,717,944 | 107,353,003 | 14,166,116 |
+| Single-tweet conversations | 90.7% | 89.7% | 93.0% |
+| Multi-tweet conversations | 1,645,301 | 11,085,182 | 987,137 |
+| Multi-user conversations | 0.94% | 1.45% | 0.65% |
+| Conversations with observed root | 74.8% | 75.1% | 79.5% |
+| Roots reconstructed from retweets | 1,952 | 4,257 | 130 |
+| Root recovery among missing-root conversations with retweet evidence | 99.74% | 99.91% | 100.00% |
+| 99th percentile of conversation duration | 12.8 h | 17.4 h | 8.0 h |
+
+**Main patterns.** Conversation sizes are highly skewed: approximately 90–93% contain only one observed non-retweet tweet. Multi-user conversations are particularly rare (0.65–1.45% of all conversations), even among the much larger London sample. The original root tweet is observed in roughly three-quarters of conversations, with somewhat higher coverage in Portland. Although retweet-based recovery succeeds in almost every missing-root case *where suitable retweet evidence exists*, it reconstructs only a few thousand roots across the three cities and therefore does not substantially reduce overall root missingness.
+
+
